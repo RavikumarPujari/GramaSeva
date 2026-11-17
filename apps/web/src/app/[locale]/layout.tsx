@@ -1,0 +1,48 @@
+import React from "react";
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { getMessages, unstable_setRequestLocale as setRequestLocale } from "next-intl/server";
+import { NextIntlClientProvider } from "next-intl";
+import { locales, type Locale } from "@/i18n";
+import { Navbar } from "@/components/layout/Navbar";
+import { Footer } from "@/components/layout/Footer";
+import "../globals.css";
+
+export const metadata: Metadata = {
+  title: "FixProof — Verified Civic Complaint & Repair Tracking",
+  description:
+    "Village-first civic technology pilot for Gram Panchayats and municipal wards. Report issues, track verified repairs with photo evidence, and ensure independent review.",
+};
+
+export function generateStaticParams() {
+  return locales.map((locale) => ({ locale }));
+}
+
+interface RootLayoutProps {
+  children: React.ReactNode;
+  params: { locale: string };
+}
+
+export default async function LocaleLayout({
+  children,
+  params: { locale },
+}: RootLayoutProps) {
+  if (!locales.includes(locale as Locale)) {
+    notFound();
+  }
+
+  setRequestLocale(locale);
+  const messages = await getMessages();
+
+  return (
+    <html lang={locale}>
+      <body className="min-h-screen flex flex-col bg-slate-50 text-slate-900 font-sans">
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          <Navbar />
+          <main className="flex-1 flex flex-col">{children}</main>
+          <Footer />
+        </NextIntlClientProvider>
+      </body>
+    </html>
+  );
+}

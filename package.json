@@ -1,0 +1,15 @@
+{
+  "name": "fixproof-root",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FixProof — Village-first civic complaint, infrastructure triage, work tracking and repair verification platform.",
+  "scripts": {
+    "web:dev": "npm --prefix apps/web run dev",
+    "web:build": "npm --prefix apps/web run build",
+    "web:lint": "npm --prefix apps/web run lint",
+    "web:typecheck": "npm --prefix apps/web run typecheck",
+    "api:dev": "python -m uvicorn app.main:app --app-dir services/api --reload --port 8000",
+    "api:test": "python -m unittest discover -s services/api/tests -p \"test_*.py\"",
+    "test": "npm run web:typecheck && npm run api:test"
+  }
+}

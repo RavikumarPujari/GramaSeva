@@ -1,0 +1,88 @@
+{
+  "navigation": {
+    "brand": "FixProof",
+    "home": "Home",
+    "report": "Report Problem",
+    "myReports": "My Reports",
+    "publicDashboard": "Public Transparency",
+    "staffPortal": "Staff Review",
+    "workerPortal": "Field Worker",
+    "adminPortal": "Administration",
+    "selectLanguage": "Language",
+    "signIn": "Sign In",
+    "signOut": "Sign Out"
+  },
+  "common": {
+    "appTitle": "FixProof Civic Resolution Pilot",
+    "appSubtitle": "Village and ward civic problem reporting, verified repair tracking, and transparent public accountability.",
+    "pilotBadge": "Pilot Project",
+    "loading": "Loading...",
+    "error": "An error occurred",
+    "retry": "Try Again",
+    "save": "Save Draft",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "back": "Back",
+    "next": "Continue",
+    "submit": "Submit Complaint",
+    "close": "Close",
+    "search": "Search issues...",
+    "filter": "Filter",
+    "refresh": "Refresh",
+    "all": "All",
+    "viewDetails": "View Details",
+    "noData": "No records found",
+    "anonymous": "Anonymous Citizen",
+    "trackingId": "Tracking ID"
+  },
+  "landing": {
+    "heroTitle": "Report local issues. Track real fixes.",
+    "heroSubtitle": "A community-first platform connecting residents of Gram Panchayats and municipal wards with verified civic resolutions. Every repair requires independent verification before closure.",
+    "reportButton": "Report an Infrastructure Issue",
+    "trackButton": "Track Your Submission",
+    "publicButton": "View Public Accountability Map",
+    "howItWorksTitle": "How FixProof Works",
+    "step1Title": "1. Report with Evidence",
+    "step1Desc": "Upload a photo of damaged roads, water leaks, or waste. Select your village and ward, or pick a pin on the map.",
+    "step2Title": "2. Triaged & Assigned",
+    "step2Desc": "Panchayat reviewers inspect the issue, link possible duplicates, and route to the correct team with clear priority.",
+    "step3Title": "3. Work & Repair Proof",
+    "step3Desc": "Field workers perform the repair and must submit photographic evidence of completed work.",
+    "step4Title": "4. Independent Verification",
+    "step4Desc": "An authorized reviewer independently confirms the fix before status is marked 'Resolved'. Citizens can dispute if unresolved.",
+    "disclaimer": "FixProof is not an emergency dispatch service. AI suggestions are advisory only and require human review."
+  },
+  "categories": {
+    "road_damage": "Road Damage & Potholes",
+    "water_leak": "Visible Water Leakage",
+    "garbage": "Garbage & Litter Accumulation",
+    "drainage": "Drainage & Waterlogging",
+    "streetlight": "Streetlight Not Working",
+    "public_facility": "Damaged Public Facility",
+    "other": "Other Public Issue"
+  },
+  "statuses": {
+    "DRAFT": "Draft",
+    "SUBMITTED": "Submitted",
+    "UNDER_REVIEW": "Under Review",
+    "ASSIGNED": "Assigned to Department",
+    "IN_PROGRESS": "Work in Progress",
+    "REPAIR_REPORTED": "Repair Reported (Awaiting Verification)",
+    "RESOLUTION_REVIEW": "Resolution Review",
+    "RESOLVED": "Independently Verified & Resolved",
+    "NEEDS_INFORMATION": "Needs More Information",
+    "REOPENED": "Reopened / Disputed",
+    "REJECTED": "Rejected"
+  },
+  "roles": {
+    "citizen": "Citizen",
+    "reviewer": "Panchayat Reviewer",
+    "worker": "Field Worker",
+    "admin": "Administrator",
+    "public": "Public Visitor"
+  },
+  "notices": {
+    "advisoryAi": "AI suggestions are advisory only. Official decisions are verified by authorized local officers.",
+    "privacyGuaranteed": "Your personal contact details and private coordinates are never shared publicly."
+  }
+}
