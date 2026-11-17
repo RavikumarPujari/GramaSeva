@@ -138,13 +138,14 @@ class TestDatabaseAndPermissions(unittest.TestCase):
         """Verify admin can add new locality units dynamically."""
         org = self.db.query(Organization).first()
         gp = self.db.query(LocalityUnit).filter(LocalityUnit.unit_type == "gram_panchayat").first()
+        test_id = uuid.uuid4().hex[:6]
 
         new_village = LocalityUnit(
             organization_id=org.id,
             unit_type="village",
             parent_id=gp.id,
-            official_code="VIL-NEW-TEST",
-            name_en="Test Greenfield Village",
+            official_code=f"VIL-NEW-{test_id}",
+            name_en=f"Greenfield Village {test_id}",
             name_kn="ಟೆಸ್ಟ್ ಗ್ರೀನ್‌ಫೀಲ್ಡ್ ಗ್ರಾಮ",
             name_hi="टेस्ट ग्रीनफील्ड गांव",
             is_active=True,
@@ -156,7 +157,7 @@ class TestDatabaseAndPermissions(unittest.TestCase):
             organization_id=org.id,
             unit_type="ward",
             parent_id=new_village.id,
-            official_code="W1-NEW-TEST",
+            official_code=f"W1-NEW-{test_id}",
             name_en="Ward 1 — Greenfield North",
             name_kn="ವಾರ್ಡ್ ೧ — ಗ್ರೀನ್‌ಫೀಲ್ಡ್ ಉತ್ತರ",
             name_hi="वार्ड १ — ग्रीनफील्ड उत्तर",
@@ -166,7 +167,7 @@ class TestDatabaseAndPermissions(unittest.TestCase):
         self.db.commit()
 
         # Query back
-        queried_ward = self.db.query(LocalityUnit).filter(LocalityUnit.official_code == "W1-NEW-TEST").first()
+        queried_ward = self.db.query(LocalityUnit).filter(LocalityUnit.official_code == f"W1-NEW-{test_id}").first()
         self.assertIsNotNone(queried_ward)
         self.assertEqual(queried_ward.parent_id, new_village.id)
         self.assertEqual(queried_ward.unit_type, "ward")

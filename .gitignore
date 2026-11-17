@@ -44,6 +44,7 @@ ENV/
 !/storage/private/.gitkeep
 /storage/public/*
 !/storage/public/.gitkeep
+services/api/storage/
 
 # Local SQLite databases
 *.db

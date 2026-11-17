@@ -5,6 +5,7 @@ import os
 
 from app.auth.router import router as auth_router
 from app.localities.router import router as localities_router
+from app.reports.router import router as reports_router
 
 app = FastAPI(
     title="FixProof Civic API",
@@ -33,6 +34,7 @@ app.add_middleware(
 # Register Sub-Routers
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(localities_router, prefix="/api/v1")
+app.include_router(reports_router, prefix="/api/v1")
 
 
 @app.get("/")
