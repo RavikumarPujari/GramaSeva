@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timezone
 import os
 
+from app.auth.router import router as auth_router
+from app.localities.router import router as localities_router
+
 app = FastAPI(
     title="FixProof Civic API",
     description="Multilingual civic complaint, infrastructure issue triage, work tracking, and repair verification platform.",
@@ -26,6 +29,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register Sub-Routers
+app.include_router(auth_router, prefix="/api/v1")
+app.include_router(localities_router, prefix="/api/v1")
 
 
 @app.get("/")
