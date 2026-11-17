@@ -12,41 +12,50 @@
 - **Status:** COMPLETED & VERIFIED
 - **Date:** 2026-11-17
 - **Deliverables Completed:**
-  - **Version Control & Config:**
-    - Initialized Git repository and created comprehensive `.gitignore`.
-    - Added `.env.example` and local `.env` covering App, DB, Storage, Maps, and AI Worker settings.
-    - Added root `package.json` with scripts for `web:dev`, `web:build`, `web:lint`, `web:typecheck`, `api:dev`, `api:test`, and `test`.
-  - **Localization Engine (`next-intl`):**
-    - Configured static message catalogs for English (`en.json`), Kannada (`kn.json`), and Hindi (`hi.json`).
-    - Configured `i18n.ts` and `middleware.ts` for clean `/en`, `/kn`, and `/hi` routing with route preservation during language switching.
-  - **Civic Design System & Components (`apps/web/src/components/ui`):**
-    - Built responsive tokens in `tailwind.config.ts` (Civic Blue, Panchayat Slate/Green, min touch targets 44px).
-    - `Button.tsx`: Variants (`primary`, `secondary`, `outline`, `ghost`, `danger`, `success`), sizes, loading spinner, min-h-touch.
-    - `Badge.tsx`: Status badges mapped to all official lifecycle statuses (`DRAFT`, `SUBMITTED`, `UNDER_REVIEW`, `ASSIGNED`, `IN_PROGRESS`, `REPAIR_REPORTED`, `RESOLUTION_REVIEW`, `RESOLVED`, `NEEDS_INFORMATION`, `REOPENED`, `REJECTED`).
-    - `Card.tsx`: Standardized card containers, headers, contents, and footers.
-    - `Alert.tsx`: Accessible status banners with role="alert".
-    - `Input.tsx`, `Textarea.tsx`, `Select.tsx`: Accessible form controls with error states and helper texts.
-    - `LoadingState.tsx`, `EmptyState.tsx`: High-clarity states with accessible ARIA live regions.
-  - **Layout & Navigation:**
-    - `Navbar.tsx`: Responsive navigation with mobile drawer, language switcher pills, and direct portal links.
-    - `Footer.tsx`: Non-emergency civic notice, AI advisory disclaimer, and privacy assurance.
-  - **Role-Based Route Shells:**
-    - `/[locale]`: High-impact citizen landing page with How-it-Works and category quick-starts.
-    - `/[locale]/report`: Guided 4-step reporting shell (Problem, Evidence, Location, Review) with "Ward Unknown" option.
-    - `/[locale]/my-reports`: Citizen submission tracking with status filters and Tracking ID search.
-    - `/[locale]/staff`: Authority reviewer inbox shell with separation-of-duty enforcement and duplicate candidate review.
-    - `/[locale]/worker`: Field worker task management and repair evidence upload shell.
-    - `/[locale]/admin`: Locality hierarchy administration shell with first-class village ward structures.
-    - `/[locale]/public`: Sanitized public transparency dashboard with Map/List toggle and ward-level accountability metrics.
-  - **Typed API Client:**
-    - `apps/web/src/lib/api-client.ts`: Standardized fetch client with `ApiError`, abort timeouts, and auth headers.
-  - **FastAPI Backend Shell:**
-    - `services/api/app/main.py`: Modular FastAPI application with CORS middleware, `/api/v1/health`, and `/api/v1/meta`.
-    - `services/api/tests/test_health.py`: Unit tests verifying health, version, metadata, and lifecycle statuses.
+  - Initialized Git repository and created comprehensive `.gitignore`, `.env.example`, `.env`, and root `package.json`.
+  - Configured `next-intl` localization with static catalogs for English (`en.json`), Kannada (`kn.json`), and Hindi (`hi.json`).
+  - Built responsive design system components in `apps/web/src/components/ui/` (`Button`, `Badge`, `Card`, `Alert`, `Input`, `Select`, `LoadingState`, `EmptyState`).
+  - Implemented role-based route shells (`/report`, `/my-reports`, `/staff`, `/worker`, `/admin`, `/public`).
+  - Built typed API client (`apps/web/src/lib/api-client.ts`) and FastAPI backend shell (`services/api/app/main.py`).
+  - Verification: `tsc --noEmit` passed, `next build` compiled 24 static pages, `next lint` passed, all backend unit tests passed.
+
+---
+
+## Phase 2: Database, Identity and Permissions
+- **Status:** COMPLETED & VERIFIED
+- **Date:** 2026-11-17
+- **Deliverables Completed:**
+  - **Database Schema & Migrations:**
+    - Standard PostGIS/PostgreSQL migration created: `database/migrations/001_initial_schema.sql` (PostGIS spatial geometry for polygons and points, spatial indexes with GIST, and Row-Level Security policies).
+    - SQLAlchemy 2.0 declarative models created in `services/api/app/models/`:
+      - `base.py`: UUID primary keys & timestamp mixins.
+      - `users.py`: `Profile` and `RoleAssignment`.
+      - `localities.py`: `Organization`, `LocalityUnit` (first-class village and ward hierarchy), `Department`, and `DepartmentJurisdiction`.
+      - `issues.py`: `Issue` (physical problem), `Submission` (citizen report), `MediaAsset`, `DuplicateCandidate`, `Assignment`, `RepairReview`, `Dispute`, `StatusEvent`, `AuditLog`, and `Job`.
+  - **Authentication & RBAC:**
+    - `security.py`: Secure password hashing using bcrypt (12 rounds) and JWT token creation/decoding with HS256 algorithm.
+    - `dependencies.py`: Server-side token verification, `require_roles(*roles)` RBAC enforcement, `verify_jurisdiction_scope` hierarchical check, and `verify_separation_of_duty` rule.
+    - `router.py`: Real registration (`/api/v1/auth/register`), authentication (`/api/v1/auth/login`), and profile extraction (`/api/v1/auth/me`).
+  - **Locality & Ward Administration API:**
+    - `services/api/app/localities/router.py`: Locality listing (`/api/v1/localities`), child units endpoint (`/api/v1/localities/{id}/children`), and admin ward creation (`POST /api/v1/localities`).
+  - **Demo Pilot Seed Data:**
+    - `database/seeds/demo_seed.py`: Clearly labeled pilot demo dataset for Mandya District:
+      - 1 Pilot Organization (`Mandya Zilla Panchayat`)
+      - Locality tree: State -> District -> Taluk -> Gowdanahalli GP -> 3 Villages -> 7 Wards
+      - Secondary town municipality for cross-jurisdiction testing
+      - 3 Departments: Roads & Works, Water & Sanitation, Solid Waste Management
+      - Seeded accounts: Admin, Gowdanahalli Reviewer, Town Reviewer, Field Worker, and Citizens.
+  - **Permission & Security Test Suite:**
+    - `services/api/tests/test_permissions.py`:
+      - Test 01: Bcrypt password hashing, verification, and JWT lifecycle.
+      - Test 02: Verification of seeded profiles and active roles.
+      - Test 03: Verification of first-class village ward hierarchy (GP -> 3 Villages -> 7 Wards with multilingual names).
+      - Test 04: Jurisdiction scoping enforcement (Reviewer in GP 1 can access GP 1 and its wards, but is strictly blocked from accessing cross-jurisdiction town units).
+      - Test 05: Separation of duty enforcement (field worker is strictly blocked from self-approving their repair resolution).
+      - Test 06: Admin dynamic creation of new villages and wards.
+      - Test 07: Real end-to-end citizen registration and login flow with token issuance.
 - **Verification Results:**
-  - `npm run web:typecheck`: TypeScript check passed with 0 errors (`tsc --noEmit`).
-  - `npm run web:lint`: ESLint passed with 0 warnings/errors.
-  - `npm run web:build`: Next.js 14 production build compiled all 24 static pages across English, Kannada, and Hindi.
-  - `npm run api:test`: All 4 backend unit tests passed in 0.000s (`OK`).
-  - `npm run test` (Root): Combined test suite executed cleanly with exit code 0.
-- **Next Phase:** Phase 2 — Database, identity and permissions.
+  - `python database/seeds/demo_seed.py`: Tables created and populated successfully.
+  - `python -m unittest discover -s tests -p "test_*.py"`: All 11 tests passed in 5.049s (`OK`).
+  - `npm run test` (Root): Frontend typechecks and backend test suite executed cleanly with exit code 0.
+- **Next Phase:** Phase 3 — Citizen reporting and secure media.
