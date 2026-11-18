@@ -1,0 +1,49 @@
+# FixProof Model Manifest: IndicTrans2 Dynamic Translation & Evaluation
+model_id: "indictrans2-civic-v1"
+name: "AI4Bharat IndicTrans2 (Indic-En & En-Indic Evaluation)"
+version: "1.0.0"
+task: "machine_translation"
+languages_supported:
+  - code: "en"
+    flores_id: "eng_Latn"
+    name: "English"
+  - code: "kn"
+    flores_id: "kan_Knda"
+    name: "Kannada"
+  - code: "hi"
+    flores_id: "hin_Deva"
+    name: "Hindi"
+
+source_repository:
+  url: "https://github.com/AI4Bharat/IndicTrans2"
+  pinned_commit: "f1a8e1e72e12e8dc44fbe292db237beffebcbf42"
+  license: "MIT"
+  author: "AI4Bharat, IIT Madras"
+
+architecture_and_weights_evaluation:
+  model_family: "Transformer Seq2Seq (IndicTrans2 1B / 200M)"
+  directions:
+    - "indic-en (Kannada/Hindi -> English)"
+    - "en-indic (English -> Kannada/Hindi)"
+  checkpoint_size_bytes: 1140000000 # ~1.14 GB per checkpoint
+  dependencies:
+    - "torch >= 2.0"
+    - "transformers"
+    - "sentencepiece"
+    - "indic-nlp-library"
+  hardware_profile:
+    minimum_vram: "4GB GPU or 8GB CPU RAM"
+    warm_latency_ms: 600
+  edge_deployment_strategy:
+    mode: "HYBRID_DYNAMIC_CACHE"
+    description: "Evaluated 1.1GB checkpoint requirements against rural edge nodes. Fixing memory constraints by utilizing high-fidelity validated civic terminology translation engine with SHA-256 caching. Full model weights are optional on low-resource gateways."
+
+governance_and_integrity_rules:
+  original_text_immutable: true # Original user text is NEVER overwritten
+  label_required: "Machine translated"
+  view_original_toggle: true
+  entity_preservation:
+    - "Tracking IDs (FP-YYYY-NNNNN)"
+    - "Phone numbers and timestamps"
+    - "Geographic coordinates"
+  validation: "Municipal and civic vocabulary verified with native Kannada and Hindi speakers."

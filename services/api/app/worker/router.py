@@ -39,6 +39,10 @@ class ProgressNoteRequest(BaseModel):
 class DeclineRequest(BaseModel):
     reason: str
 
+class EscalateTaskRequest(BaseModel):
+    reason: str  # BLOCKED, NEEDS_MATERIALS, INACCESSIBLE, OTHER
+    explanation: str
+
 class RequestReviewRequest(BaseModel):
     work_summary: str
 
@@ -282,4 +286,53 @@ def request_resolution_review(
         "status": "repair_reported",
         "issue_id": issue.id,
         "new_status": issue.status,
+    }
+
+@router.post("/issues/{issue_id}/escalate")
+def escalate_task(
+    issue_id: str,
+    req: EscalateTaskRequest,
+    current_worker: Profile = Depends(require_roles("worker", "admin")),
+    db: Session = Depends(get_db),
+):
+    """
+    Worker reports that access is blocked, parts are unavailable, or work needs operational escalation (README 4.4, 5.2).
+    """
+    issue = db.query(Issue).filter(Issue.id == issue_id).first()
+    if not issue:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
+
+    issue.is_escalated = True
+    issue.escalated_at = datetime.now(timezone.utc)
+    issue.escalation_reason = f"[{req.reason}] {req.explanation}"
+
+    event = StatusEvent(
+        issue_id=issue.id,
+        actor_profile_id=current_worker.id,
+        previous_status=issue.status,
+        next_status=issue.status,
+        reason=f"Worker flagged operational escalation: [{req.reason}] {req.explanation}",
+    )
+    db.add(event)
+    db.commit()
+
+    # Enqueue notification to authority supervisor / reviewer
+    from app.notifications.service import notification_service
+    reviewers = db.query(Profile).filter(Profile.email.like("%reviewer%")).all()
+    for rev in reviewers:
+        notification_service.send_notification(
+            db=db,
+            profile_id=rev.id,
+            event_type="ESCALATION_TRIGGERED",
+            reference_number=issue.reference_number,
+            issue_id=issue.id,
+            locale=rev.preferred_locale or "en",
+            dedup_suffix=f"esc-{issue.id[:8]}",
+        )
+
+    return {
+        "status": "escalated",
+        "issue_id": issue.id,
+        "is_escalated": True,
+        "escalation_reason": issue.escalation_reason,
     }

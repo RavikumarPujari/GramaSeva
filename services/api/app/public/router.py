@@ -473,3 +473,56 @@ def get_public_localities(db: Session = Depends(get_db)):
         )
         for u in units
     ]
+
+class PublicMapPoint(BaseModel):
+    id: str
+    reference_number: str
+    category: str
+    status: str
+    priority: str
+    public_latitude: float
+    public_longitude: float
+    locality_name: Optional[str] = None
+    is_recurrence: bool = False
+    is_escalated: bool = False
+
+@router.get("/map-data", response_model=List[PublicMapPoint])
+def get_public_map_data(
+    category: Optional[str] = Query(None),
+    status_filter: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Returns privacy-sanitized geographic points for village heatmaps and issue mapping (README Section 5.2).
+    Uses generalized coordinates (rounded to ~100m); exact private GPS coordinates are never exposed.
+    """
+    query = db.query(Issue).filter(
+        Issue.status.notin_(["DRAFT", "CANCELLED"]),
+        (Issue.public_latitude.isnot(None)) | (Issue.latitude.isnot(None)),
+    )
+    if isinstance(category, str) and category:
+        query = query.filter(Issue.category == category)
+    if isinstance(status_filter, str) and status_filter:
+        query = query.filter(Issue.status == status_filter)
+
+    issues = query.all()
+    points = []
+    for issue in issues:
+        lat = round(issue.public_latitude or issue.latitude, 3)
+        lng = round(issue.public_longitude or issue.longitude, 3)
+        loc_name = issue.locality_unit.name_en if issue.locality_unit else "Ward Unknown"
+        points.append(
+            PublicMapPoint(
+                id=issue.id,
+                reference_number=issue.reference_number,
+                category=issue.category,
+                status=issue.status,
+                priority=issue.priority,
+                public_latitude=lat,
+                public_longitude=lng,
+                locality_name=loc_name,
+                is_recurrence=issue.is_recurrence,
+                is_escalated=issue.is_escalated,
+            )
+        )
+    return points

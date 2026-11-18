@@ -10,6 +10,8 @@ from app.core.database import get_db
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
 from workers.adapters.duplicate.similarity import rank_duplicate_candidate, compute_haversine_distance
+from workers.adapters.evidence_assistance.adapter import evidence_assistance_adapter
+from app.storage.service import storage_service
 from app.models.users import Profile, RoleAssignment
 from app.models.localities import LocalityUnit, Department
 from app.models.issues import (
@@ -21,6 +23,8 @@ from app.models.issues import (
     StatusEvent,
     AuditLog,
     DuplicateCandidate,
+    Asset,
+    RecurrenceCandidate,
 )
 from app.auth.dependencies import (
     get_current_user,
@@ -632,4 +636,205 @@ def redact_media(
     db.commit()
 
     return {"status": "redacted_and_approved", "media_id": media.id, "is_public_approved": True}
+
+# --- Phase 8 Advanced Endpoints: Evidence Assistance, Asset Linking & Recurrence ---
+
+class EvidenceAssistanceResponse(BaseModel):
+    issue_id: str
+    visible_change: bool
+    possible_mismatch: bool
+    insufficient_evidence: bool
+    visual_consistency_score: float
+    difference_summary: str
+    advisory_decision_suggestion: str
+    governance_notice: str
+    requires_independent_human_review: bool = True
+
+class LinkAssetRequest(BaseModel):
+    asset_id: str
+
+class RecurrenceCandidateItem(BaseModel):
+    candidate_id: str
+    new_issue_id: str
+    new_issue_ref: str
+    prior_issue_id: str
+    prior_issue_ref: str
+    category: str
+    distance_meters: float
+    days_since_resolution: int
+    decision: str
+    notes: Optional[str] = None
+    created_at: datetime
+
+class RecurrenceDecisionRequest(BaseModel):
+    decision: str  # CONFIRMED_RECURRENCE or REJECTED_UNRELATED
+    notes: Optional[str] = None
+    priority_boost: Optional[str] = None
+
+@router.get("/issues/{id}/evidence-assistance", response_model=EvidenceAssistanceResponse)
+def get_repair_evidence_assistance(
+    id: str,
+    current_reviewer: Profile = Depends(require_roles("reviewer", "admin")),
+    db: Session = Depends(get_db),
+):
+    """
+    Compares citizen pre-repair evidence vs worker repair proof (README Section 7.8, Phase 8).
+    Strict Rule: AI cannot approve repair or determine safety. Reviewer must independently decide.
+    """
+    issue = db.query(Issue).filter(Issue.id == id).first()
+    if not issue:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
+
+    before_media = (
+        db.query(MediaAsset)
+        .filter(MediaAsset.issue_id == issue.id, MediaAsset.evidence_role == "CITIZEN_BEFORE")
+        .first()
+    )
+    after_media = (
+        db.query(MediaAsset)
+        .filter(MediaAsset.issue_id == issue.id, MediaAsset.evidence_role == "WORKER_AFTER")
+        .first()
+    )
+
+    if not before_media or not after_media:
+        return EvidenceAssistanceResponse(
+            issue_id=issue.id,
+            visible_change=False,
+            possible_mismatch=False,
+            insufficient_evidence=True,
+            visual_consistency_score=0.0,
+            difference_summary="Insufficient evidence: Either before or after photo is missing for automated comparison.",
+            advisory_decision_suggestion="REQUEST_EVIDENCE",
+            governance_notice="AI is advisory only. Authorized reviewer must independently verify repairs.",
+            requires_independent_human_review=True,
+        )
+
+    before_path = storage_service.get_absolute_path(before_media.storage_path)
+    after_path = storage_service.get_absolute_path(after_media.storage_path)
+
+    res = evidence_assistance_adapter.analyze_evidence_pair(
+        before_image=before_path,
+        after_image=after_path,
+        before_hash=before_media.file_hash,
+        after_hash=after_media.file_hash,
+    )
+
+    return EvidenceAssistanceResponse(
+        issue_id=issue.id,
+        visible_change=res["visible_change"],
+        possible_mismatch=res["possible_mismatch"],
+        insufficient_evidence=res["insufficient_evidence"],
+        visual_consistency_score=res.get("visual_consistency_score", 0.0),
+        difference_summary=res["difference_summary"],
+        advisory_decision_suggestion=res["advisory_decision_suggestion"],
+        governance_notice=res["governance_notice"],
+        requires_independent_human_review=True,
+    )
+
+@router.post("/issues/{id}/link-asset")
+def link_issue_to_asset(
+    id: str,
+    req: LinkAssetRequest,
+    current_reviewer: Profile = Depends(require_roles("reviewer", "admin")),
+    db: Session = Depends(get_db),
+):
+    """Links verified public infrastructure asset to this issue (README Section 5.2)."""
+    issue = db.query(Issue).filter(Issue.id == id).first()
+    if not issue:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
+
+    asset = db.query(Asset).filter(Asset.id == req.asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+
+    issue.asset_id = asset.id
+    db.commit()
+
+    return {
+        "status": "linked",
+        "issue_id": issue.id,
+        "asset_id": asset.id,
+        "asset_code": asset.official_code,
+        "asset_name": asset.name_en,
+    }
+
+@router.get("/recurrence-candidates", response_model=List[RecurrenceCandidateItem])
+def get_recurrence_candidates(
+    current_reviewer: Profile = Depends(require_roles("reviewer", "admin")),
+    db: Session = Depends(get_db),
+):
+    """
+    Lists flagged recurrence candidates where an issue matches a previously resolved defect nearby.
+    Reviewers confirm or reject the relationship (README Section 4.4, Phase 8).
+    """
+    candidates = (
+        db.query(RecurrenceCandidate)
+        .filter(RecurrenceCandidate.decision == "PENDING")
+        .order_by(RecurrenceCandidate.created_at.desc())
+        .all()
+    )
+
+    out = []
+    for c in candidates:
+        new_i = db.query(Issue).filter(Issue.id == c.new_issue_id).first()
+        prior_i = db.query(Issue).filter(Issue.id == c.prior_issue_id).first()
+        if new_i and prior_i:
+            out.append(
+                RecurrenceCandidateItem(
+                    candidate_id=c.id,
+                    new_issue_id=c.new_issue_id,
+                    new_issue_ref=new_i.reference_number,
+                    prior_issue_id=c.prior_issue_id,
+                    prior_issue_ref=prior_i.reference_number,
+                    category=new_i.category,
+                    distance_meters=c.distance_meters,
+                    days_since_resolution=c.days_since_resolution,
+                    decision=c.decision,
+                    notes=c.notes,
+                    created_at=c.created_at,
+                )
+            )
+    return out
+
+@router.post("/recurrence-candidates/{candidate_id}/decide")
+def decide_recurrence_candidate(
+    candidate_id: str,
+    req: RecurrenceDecisionRequest,
+    current_reviewer: Profile = Depends(require_roles("reviewer", "admin")),
+    db: Session = Depends(get_db),
+):
+    """Human reviewer confirms or rejects recurrence relationship and optionally escalates priority."""
+    if req.decision not in ("CONFIRMED_RECURRENCE", "REJECTED_UNRELATED"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Decision must be CONFIRMED_RECURRENCE or REJECTED_UNRELATED",
+        )
+
+    cand = db.query(RecurrenceCandidate).filter(RecurrenceCandidate.id == candidate_id).first()
+    if not cand:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recurrence candidate not found")
+
+    cand.decision = req.decision
+    cand.adjudicated_by_id = current_reviewer.id
+    cand.adjudicated_at = datetime.now(timezone.utc)
+    if req.notes:
+        cand.notes = f"{cand.notes or ''} | Reviewer: {req.notes}".strip()
+
+    new_issue = db.query(Issue).filter(Issue.id == cand.new_issue_id).first()
+    if new_issue and req.decision == "CONFIRMED_RECURRENCE":
+        new_issue.is_recurrence = True
+        new_issue.prior_resolved_issue_id = cand.prior_issue_id
+        if req.priority_boost:
+            new_issue.priority = req.priority_boost
+
+    db.commit()
+
+    return {
+        "status": "adjudicated",
+        "candidate_id": cand.id,
+        "decision": cand.decision,
+        "is_recurrence": new_issue.is_recurrence if new_issue else False,
+        "new_priority": new_issue.priority if new_issue else None,
+    }
+
 

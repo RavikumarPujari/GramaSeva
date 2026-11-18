@@ -68,3 +68,19 @@ class ReportResponse(BaseModel):
     created_at: datetime
     media_assets: List[MediaAssetResponse] = []
     timeline: List[StatusEventResponse] = []
+
+class OfflineDraftSyncItem(BaseModel):
+    client_draft_id: str
+    idempotency_key: str
+    category: str = Field(default="road_damage")
+    description: Optional[str] = None
+    locale: Optional[str] = "en"
+    village_name: Optional[str] = None
+    ward_name: Optional[str] = None
+    locality_unit_id: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+class SyncReportResponse(BaseModel):
+    synced_count: int
+    items: List[ReportResponse]

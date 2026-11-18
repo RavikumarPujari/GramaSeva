@@ -11,6 +11,8 @@ from app.worker.router import router as worker_router
 from app.public.router import router as public_router
 from app.notifications.router import router as notifications_router
 from app.ai.router import router as ai_router
+from app.translations.router import router as translations_router
+from app.assets.router import router as assets_router
 
 app = FastAPI(
     title="FixProof Civic API",
@@ -45,6 +47,8 @@ app.include_router(worker_router, prefix="/api/v1")
 app.include_router(public_router, prefix="/api/v1")
 app.include_router(notifications_router, prefix="/api/v1")
 app.include_router(ai_router, prefix="/api/v1")
+app.include_router(translations_router, prefix="/api/v1")
+app.include_router(assets_router, prefix="/api/v1")
 
 
 @app.get("/")

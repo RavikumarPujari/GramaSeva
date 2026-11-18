@@ -281,4 +281,76 @@
   - `test_07_citizen_duplicate_suggestions`: Transparent duplicate suggestions returned during reporting without modifying drafts.
 - **Total Backend Tests:** **39/39 backend tests passing** in `npm run test` (100% pass rate).
 
-- **Next Phase:** Phase 8 — Translation, evidence assistance and advanced features (Awaiting User Gate Approval).
+- **Next Phase:** Phase 8 — Translation, evidence assistance and advanced features (Completed).
+
+---
+
+## [Phase 8] — Translation, Evidence Assistance, and Advanced Features
+
+**Date:** 2026-11-18  
+**Scope:** Dynamic multilingual translation (IndicTrans2 architecture evaluation + civic lexicon engine), before/after evidence assistance, recurrence candidate detection and review, idempotent offline drafts sync, public infrastructure asset register, operational worker escalation, and privacy-sanitized map points.
+
+### Implemented Artifacts & Key Changes
+1. **Dynamic Translation & Multilingual Integrity:**
+   - Manifest: [services/workers/model-manifests/translation.yaml](file:///d:/Projects/Citizen/services/workers/model-manifests/translation.yaml): Documents AI4Bharat IndicTrans2 architecture (`eng_Latn`, `kan_Knda`, `hin_Deva`), edge deployment profile, and governance rules.
+   - Adapter: [services/workers/adapters/translation/adapter.py](file:///d:/Projects/Citizen/services/workers/adapters/translation/adapter.py):
+     - Translates dynamically between English, Kannada, and Hindi.
+     - Protects civic entities: Tracking IDs (`FP-YYYY-NNNNN`), GPS coordinates, and phone numbers are preserved without text corruption.
+     - **Original Text Immutable:** Original citizen submission text is never overwritten.
+     - Caching via text SHA-256 and language pairs in database `translations` table ([004_phase8_advanced_features.sql](file:///d:/Projects/Citizen/database/migrations/004_phase8_advanced_features.sql)).
+     - Output explicitly labelled *"Machine translated"* with a *"View original"* toggle.
+   - Translation API: `POST /api/v1/translations` ([services/api/app/translations/router.py](file:///d:/Projects/Citizen/services/api/app/translations/router.py)).
+2. **Before/After Repair Evidence Assistance:**
+   - Adapter: [services/workers/adapters/evidence_assistance/adapter.py](file:///d:/Projects/Citizen/services/workers/adapters/evidence_assistance/adapter.py):
+     - Compares citizen pre-repair evidence vs worker repair proof using perceptual Difference Hash (`dHash`) and luminance differentials.
+     - Identifies fraudulent re-uploads: Flags when worker uploads the identical photo as before evidence (`insufficient_evidence: True`, `advisory_decision_suggestion: "REQUEST_EVIDENCE"`).
+     - Identifies surface change (`visible_change: True`, `advisory_decision_suggestion: "REVIEW_FOR_APPROVAL"`).
+     - **Acceptance Gate Rule:** AI is strictly advisory and **cannot approve repair or determine safety**. Reviewer independently adjudicates before closure.
+   - API Endpoint: `GET /api/v1/staff/issues/{id}/evidence-assistance` ([services/api/app/staff/router.py](file:///d:/Projects/Citizen/services/api/app/staff/router.py)).
+3. **Recurrence Candidate Intelligence:**
+   - [services/api/app/core/recurrence.py](file:///d:/Projects/Citizen/services/api/app/core/recurrence.py):
+     - Automatically flags new complaints reported near a prior defect resolved within the last 180 days.
+     - Explains recurrence relationship with distance and days elapsed.
+     - API Endpoints:
+       - `GET /api/v1/staff/recurrence-candidates`: Review pending recurrence candidates.
+       - `POST /api/v1/staff/recurrence-candidates/{id}/decide`: Reviewer confirms recurrence (`CONFIRMED_RECURRENCE`), escalates priority to `HIGH`, and records prior issue link in `issues.prior_resolved_issue_id`.
+4. **Idempotent Offline Drafts Sync:**
+   - Schema & API: [services/api/app/reports/router.py](file:///d:/Projects/Citizen/services/api/app/reports/router.py) (`POST /api/v1/reports/sync`):
+     - Receives locally queued citizen drafts with client `idempotency_key`.
+     - Idempotent: duplicate retries return the existing tracked submission without creating duplicate complaints or issues.
+5. **Verified Public Infrastructure Asset Register:**
+   - Schema & Migration: `assets` table ([004_phase8_advanced_features.sql](file:///d:/Projects/Citizen/database/migrations/004_phase8_advanced_features.sql)).
+   - Seeded verified pilot assets for Gowdanahalli GP: `ASSET-RD-01` (Primary School Main Road), `ASSET-WP-01` (Ward 1 Drinking Water Pipeline Junction), `ASSET-SL-01` (Temple Square High-Mast Street Light).
+   - API Endpoints: `GET /api/v1/assets`, `GET /api/v1/assets/{id}`, `POST /api/v1/staff/issues/{id}/link-asset`.
+6. **Operational Escalation Workflow:**
+   - API Endpoint: `POST /api/v1/worker/issues/{id}/escalate` ([services/api/app/worker/router.py](file:///d:/Projects/Citizen/services/api/app/worker/router.py)):
+     - Field worker reports blocked work, material shortages, or inaccessible locations.
+     - Sets `is_escalated = True`, records reason, and dispatches in-app notification to Gram Panchayat reviewer/supervisor.
+7. **Privacy-Sanitized Map Data:**
+   - API Endpoint: `GET /api/v1/public/map-data` ([services/api/app/public/router.py](file:///d:/Projects/Citizen/services/api/app/public/router.py)):
+     - Exposes generalized cluster coordinates rounded to ~100m.
+     - Exact household coordinates and citizen identities are strictly withheld.
+8. **Speech / Voice Features Technical Audit:**
+   - Manifest: [services/workers/model-manifests/voice-speech.yaml](file:///d:/Projects/Citizen/services/workers/model-manifests/voice-speech.yaml):
+     - Audited IndicWav2Vec / Whisper against rural Kannada acoustic requirements.
+     - Designated status: **DEFERRED_PENDING_SPEECH_VALIDATION** (Section 12.3: Zero mock speech recognition; typed reporting remains 100% available).
+9. **Frontend Staff & Public Enhancements:**
+   - [apps/web/src/app/[locale]/staff/page.tsx](file:///d:/Projects/Citizen/apps/web/src/app/[locale]/staff/page.tsx):
+     - Added "Recurrence & Assets" tab with recurrence candidate actions and asset register table.
+     - Added advisory AI Before/After Evidence Assistance card to Resolution Verification Queue with strict human approval disclaimer.
+
+### Verification Results
+- **TypeScript:** `npm run web:typecheck` passed with **0 errors**.
+- **Frontend Build:** `npm run web:build` compiled all 24 static pages successfully across English, Kannada, and Hindi.
+- **Unit Test Suite:** `services/api/tests/test_translation_and_advanced_features.py` passed **8/8 tests**:
+  - `test_01_translation_never_overwrites_original_text`: Original text preserved in database; translation labelled as machine-translated.
+  - `test_02_translation_preserves_tracking_ids_and_coordinates`: Tracking IDs and GPS coordinates preserved during Kannada/Hindi translation.
+  - `test_03_before_after_evidence_assistance`: Detects physical repair changes; flags identical photo re-uploads as insufficient evidence; enforces human review.
+  - `test_04_idempotent_offline_sync`: Retrying with same idempotency key returns identical record without duplicates.
+  - `test_05_recurrence_detection_and_adjudication`: Flags recurrence near prior resolved issue; reviewer confirmation escalates priority.
+  - `test_06_asset_register_and_linking`: Verified assets queried and linked to issues.
+  - `test_07_worker_operational_escalation`: Worker flags blocked tasks; `is_escalated` set with reason and supervisor notification.
+  - `test_08_public_map_data_privacy_sanitization`: Public map data restricted to generalized coordinates.
+- **Total Test Suite:** **47/47 backend tests passing** in `npm run test` (100% pass rate).
+
+- **Next Phase:** Phase 9 — Security, QA, deployment and pilot readiness (Awaiting User Gate Approval).

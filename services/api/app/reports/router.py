@@ -27,6 +27,8 @@ from app.reports.schemas import (
     MediaAssetResponse,
     StatusEventResponse,
     DuplicateSuggestionItem,
+    OfflineDraftSyncItem,
+    SyncReportResponse,
 )
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
@@ -671,4 +673,86 @@ def get_report_duplicate_suggestions(
 
     suggestions.sort(key=lambda s: s.composite_score, reverse=True)
     return suggestions
+
+@router.post("/sync", response_model=SyncReportResponse)
+def sync_offline_drafts(
+    items: List[OfflineDraftSyncItem],
+    current_user: Profile = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Idempotent sync for citizen reports drafted while offline (README Section 4.1, 8, Phase 8).
+    Ensures that retries with the same idempotency key never duplicate submissions or issues.
+    """
+    synced_reports = []
+    default_org = db.query(Organization).first()
+
+    for item in items:
+        # Check idempotency: match tracking_id with idempotency_key or existing identical draft
+        existing_sub = (
+            db.query(Submission)
+            .filter(
+                (Submission.tracking_id == item.idempotency_key)
+                | (
+                    (Submission.reporter_id == current_user.id)
+                    & (Submission.description == item.description)
+                    & (Submission.category == item.category)
+                )
+            )
+            .first()
+        )
+
+        if existing_sub:
+            issue = db.query(Issue).filter(Issue.id == existing_sub.issue_id).first() if existing_sub.issue_id else None
+            synced_reports.append(build_report_response(existing_sub, issue, db))
+            continue
+
+        # Create new issue & submission atomically
+        tracking_id = generate_tracking_id()
+        unique_ref = f"{tracking_id}"
+
+        issue = Issue(
+            reference_number=unique_ref,
+            category=item.category,
+            status="SUBMITTED",
+            priority="MEDIUM",
+            organization_id=default_org.id if default_org else "default-org",
+            locality_unit_id=item.locality_unit_id,
+            latitude=item.latitude,
+            longitude=item.longitude,
+            public_latitude=round(item.latitude, 3) if item.latitude else None,
+            public_longitude=round(item.longitude, 3) if item.longitude else None,
+        )
+        db.add(issue)
+        db.flush()
+
+        sub = Submission(
+            tracking_id=tracking_id,
+            reporter_id=current_user.id,
+            issue_id=issue.id,
+            category=item.category,
+            description=item.description,
+            locale=item.locale or "en",
+            original_text=item.description,
+            locality_unit_id=item.locality_unit_id,
+            village_name=item.village_name,
+            ward_name=item.ward_name,
+            latitude=item.latitude,
+            longitude=item.longitude,
+        )
+        db.add(sub)
+
+        event = StatusEvent(
+            issue_id=issue.id,
+            actor_profile_id=current_user.id,
+            previous_status=None,
+            next_status="SUBMITTED",
+            reason="Submitted via offline sync queue",
+        )
+        db.add(event)
+        db.commit()
+
+        synced_reports.append(build_report_response(sub, issue, db))
+
+    return SyncReportResponse(synced_count=len(synced_reports), items=synced_reports)
 

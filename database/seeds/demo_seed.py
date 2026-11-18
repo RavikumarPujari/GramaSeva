@@ -30,6 +30,48 @@ def seed_database():
         # Check if already seeded
         existing_org = db.query(Organization).filter(Organization.code == "ZP-MANDYA-PILOT").first()
         if existing_org:
+            from app.models.issues import Asset
+            if db.query(Asset).count() == 0:
+                print("[Seed] Seeding verified assets into existing pilot DB...")
+                first_ward = db.query(LocalityUnit).filter(LocalityUnit.unit_type == "ward").first()
+                first_ward_id = first_ward.id if first_ward else None
+
+                asset1 = Asset(
+                    official_code="ASSET-RD-01",
+                    name_en="Primary School Main Road",
+                    name_kn="ಪ್ರಾಥಮಿಕ ಶಾಲಾ ಮುಖ್ಯ ರಸ್ತೆ",
+                    name_hi="प्राथमिक विद्यालय मुख्य सड़क",
+                    category="road_damage",
+                    locality_unit_id=first_ward_id,
+                    latitude=12.5205,
+                    longitude=76.8905,
+                    condition_status="OPERATIONAL",
+                )
+                asset2 = Asset(
+                    official_code="ASSET-WP-01",
+                    name_en="Ward 1 Drinking Water Pipeline Junction",
+                    name_kn="ವಾರ್ಡ್ 1 ಕುಡಿಯುವ ನೀರಿನ ಪೈಪ್‌ಲೈನ್ ಜಂಕ್ಷನ್",
+                    name_hi="वार्ड 1 पेयजल पाइपलाइन जंक्शन",
+                    category="water_leak",
+                    locality_unit_id=first_ward_id,
+                    latitude=12.5215,
+                    longitude=76.8915,
+                    condition_status="OPERATIONAL",
+                )
+                asset3 = Asset(
+                    official_code="ASSET-SL-01",
+                    name_en="Temple Square High-Mast Street Light",
+                    name_kn="ದೇವಾಲಯ ವೃತ್ತದ ಹೈ-ಮಾಸ್ಟ್ ಬೀದಿ ದೀಪ",
+                    name_hi="मंदिर चौराहा हाई-मास्ट स्ट्रीट लाइट",
+                    category="streetlight",
+                    locality_unit_id=first_ward_id,
+                    latitude=12.5220,
+                    longitude=76.8920,
+                    condition_status="OPERATIONAL",
+                )
+                db.add_all([asset1, asset2, asset3])
+                db.commit()
+                print("[Seed] Successfully seeded verified public assets into pilot DB.")
             print("[Seed] Database already contains pilot data. Skipping duplicate seed.")
             return
 
@@ -288,8 +330,50 @@ def seed_database():
         db.add(RoleAssignment(profile_id=citizen_profile1.id, role="citizen", is_active=True))
         db.add(RoleAssignment(profile_id=citizen_profile2.id, role="citizen", is_active=True))
 
+        # 8. Seed Verified Public Infrastructure Assets (Phase 8)
+        from app.models.issues import Asset
+        if db.query(Asset).count() == 0:
+            print("[Seed] Seeding verified public infrastructure assets...")
+            first_ward = db.query(LocalityUnit).filter(LocalityUnit.unit_type == "ward").first()
+            first_ward_id = first_ward.id if first_ward else None
+
+            asset1 = Asset(
+                official_code="ASSET-RD-01",
+                name_en="Primary School Main Road",
+                name_kn="ಪ್ರಾಥಮಿಕ ಶಾಲಾ ಮುಖ್ಯ ರಸ್ತೆ",
+                name_hi="प्राथमिक विद्यालय मुख्य सड़क",
+                category="road_damage",
+                locality_unit_id=first_ward_id,
+                latitude=12.5205,
+                longitude=76.8905,
+                condition_status="OPERATIONAL",
+            )
+            asset2 = Asset(
+                official_code="ASSET-WP-01",
+                name_en="Ward 1 Drinking Water Pipeline Junction",
+                name_kn="ವಾರ್ಡ್ 1 ಕುಡಿಯುವ ನೀರಿನ ಪೈಪ್‌ಲೈನ್ ಜಂಕ್ಷನ್",
+                name_hi="वार्ड 1 पेयजल पाइपलाइन जंक्शन",
+                category="water_leak",
+                locality_unit_id=first_ward_id,
+                latitude=12.5215,
+                longitude=76.8915,
+                condition_status="OPERATIONAL",
+            )
+            asset3 = Asset(
+                official_code="ASSET-SL-01",
+                name_en="Temple Square High-Mast Street Light",
+                name_kn="ದೇವಾಲಯ ವೃತ್ತದ ಹೈ-ಮಾಸ್ಟ್ ಬೀದಿ ದೀಪ",
+                name_hi="मंदिर चौराहा हाई-मास्ट स्ट्रीट लाइट",
+                category="streetlight",
+                locality_unit_id=first_ward_id,
+                latitude=12.5220,
+                longitude=76.8920,
+                condition_status="OPERATIONAL",
+            )
+            db.add_all([asset1, asset2, asset3])
+
         db.commit()
-        print("[Seed] Successfully seeded pilot database with organization, hierarchy, departments, and demo users!")
+        print("[Seed] Successfully seeded pilot database with organization, hierarchy, departments, demo users, and assets!")
 
     except Exception as e:
         db.rollback()

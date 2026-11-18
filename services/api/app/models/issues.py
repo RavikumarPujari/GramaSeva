@@ -35,6 +35,14 @@ class Issue(Base, TimestampMixin):
     resolved_at = Column(DateTime, nullable=True)
     resolution_review_notes = Column(Text, nullable=True)
 
+    # Advanced Phase 8 fields: Asset register link, recurrence, and operational escalation
+    asset_id = Column(String(36), ForeignKey("assets.id", ondelete="SET NULL"), nullable=True, index=True)
+    is_recurrence = Column(Boolean, default=False, nullable=False)
+    prior_resolved_issue_id = Column(String(36), ForeignKey("issues.id", ondelete="SET NULL"), nullable=True, index=True)
+    is_escalated = Column(Boolean, default=False, nullable=False)
+    escalated_at = Column(DateTime, nullable=True)
+    escalation_reason = Column(Text, nullable=True)
+
     locality_unit = relationship("LocalityUnit", back_populates="issues")
     department = relationship("Department")
     assigned_worker = relationship("Profile", foreign_keys=[assigned_worker_id])
@@ -44,6 +52,7 @@ class Issue(Base, TimestampMixin):
     assignments = relationship("Assignment", back_populates="issue")
     repair_reviews = relationship("RepairReview", back_populates="issue")
     status_events = relationship("StatusEvent", back_populates="issue")
+    asset = relationship("Asset", back_populates="issues")
 
 class Submission(Base, TimestampMixin):
     """An individual citizen's complaint report. Preserved permanently even when linked to an issue."""
@@ -240,3 +249,53 @@ class ModelRun(Base, TimestampMixin):
     issue = relationship("Issue")
     submission = relationship("Submission")
     confirmed_by = relationship("Profile")
+
+class Asset(Base, TimestampMixin):
+    """Verified public infrastructure asset (roads, water points, streetlights, drains)."""
+    __tablename__ = "assets"
+
+    official_code = Column(String(50), unique=True, index=True, nullable=False)
+    name_en = Column(String(255), nullable=False)
+    name_kn = Column(String(255), nullable=True)
+    name_hi = Column(String(255), nullable=True)
+    category = Column(String(50), index=True, nullable=False)
+    locality_unit_id = Column(String(36), ForeignKey("locality_units.id", ondelete="SET NULL"), nullable=True, index=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    condition_status = Column(String(50), default="OPERATIONAL", nullable=False)
+    metadata_json = Column(Text, nullable=True)
+
+    issues = relationship("Issue", back_populates="asset")
+    locality_unit = relationship("LocalityUnit")
+
+class RecurrenceCandidate(Base, TimestampMixin):
+    """Flagged relation between a new issue and a prior resolved issue at the same location."""
+    __tablename__ = "recurrence_candidates"
+
+    new_issue_id = Column(String(36), ForeignKey("issues.id", ondelete="CASCADE"), nullable=False, index=True)
+    prior_issue_id = Column(String(36), ForeignKey("issues.id", ondelete="CASCADE"), nullable=False, index=True)
+    distance_meters = Column(Float, nullable=False)
+    days_since_resolution = Column(Integer, nullable=False)
+    # Decision: PENDING, CONFIRMED_RECURRENCE, REJECTED_UNRELATED
+    decision = Column(String(50), default="PENDING", nullable=False, index=True)
+    adjudicated_by_id = Column(String(36), ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True)
+    adjudicated_at = Column(DateTime, nullable=True)
+    notes = Column(Text, nullable=True)
+
+    new_issue = relationship("Issue", foreign_keys=[new_issue_id])
+    prior_issue = relationship("Issue", foreign_keys=[prior_issue_id])
+    adjudicated_by = relationship("Profile")
+
+class TranslationRecord(Base, TimestampMixin):
+    """Separate machine translation cache. Never overwrites original citizen text (README 12.2)."""
+    __tablename__ = "translations"
+
+    source_text_hash = Column(String(64), index=True, nullable=False)
+    source_language = Column(String(10), nullable=False)
+    target_language = Column(String(10), nullable=False)
+    original_text = Column(Text, nullable=False)
+    translated_text = Column(Text, nullable=False)
+    model_id = Column(String(100), default="indictrans2-civic-v1", nullable=False)
+    is_machine_translated = Column(Boolean, default=True, nullable=False)
+    is_verified = Column(Boolean, default=False, nullable=False)
+

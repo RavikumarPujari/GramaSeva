@@ -1,0 +1,24 @@
+# FixProof Technical Manifest: Multilingual Speech & Voice Feature Evaluation
+model_id: "indic-voice-eval-v1"
+name: "Multilingual Speech Recognition & Synthesis Technical Audit"
+version: "1.0.0"
+task: "speech_to_text_and_tts"
+
+candidate_frameworks_audited:
+  - name: "AI4Bharat IndicWav2Vec / IndicConformer"
+    url: "https://github.com/AI4Bharat/IndicWav2Vec"
+    languages: ["kn", "hi", "en"]
+  - name: "Vakyansh Speech Recognition (Open Speech Initiative)"
+    url: "https://github.com/Open-Speech-EkStep/vakyansh-models"
+  - name: "OpenAI Whisper-medium (fine-tuned Indic)"
+
+framework_evaluation_and_readiness:
+  status: "DEFERRED_PENDING_SPEECH_VALIDATION"
+  governance_rule: "README Section 12.3: Do not show a working voice feature until a real, validated speech recognition and speech synthesis pipeline supports the required languages. Audio upload alone is not voice understanding. Manual typed reporting must always remain available."
+  edge_node_constraints:
+    - "Streaming ASR models require persistent WebSocket connections and >= 4 GB RAM per worker."
+    - "Rural dialect variation in Mandya district Kannada requires dedicated acoustic model validation with held-out local field recordings."
+  operational_safeguard:
+    - "Voice inputs are marked inactive / pending field validation."
+    - "Typed reporting and guided wizard remain 100% functional."
+    - "Zero mock voice processing or simulated transcriptions."
