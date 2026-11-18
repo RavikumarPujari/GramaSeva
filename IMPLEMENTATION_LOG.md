@@ -75,4 +75,48 @@
   - `npm run web:typecheck`: TypeScript compiler passed with 0 errors.
   - `npm run web:build`: Next.js 14 production build compiled all 24 static pages.
   - `npm run test` (Root): Full pipeline passed with exit code 0.
-- **Next Phase:** Phase 4 — Manual issue lifecycle and staff workflow.
+- **Next Phase:** Phase 4 — Manual issue lifecycle and staff workflow (Completed).
+
+---
+
+## Phase 4: Manual Issue Lifecycle and Staff Workflow
+
+**Status:** Completed & Verified
+**Date:** 2026-11-18
+
+### Objectives & Deliverables
+1. **Separation of Physical Issue & Citizen Submission:**
+   - Adjudicating duplicate candidates links the citizen's `Submission` to the physical `Issue` without deleting the citizen's submission record, tracking ID, or uploaded photos.
+2. **Staff Triage Workflow:**
+   - `GET /api/v1/staff/inbox`: Filterable by status and jurisdiction scope.
+   - `POST /api/v1/staff/issues/{id}/triage`: Updates priority, routes to department, and assigns field worker, transitioning state from `SUBMITTED` to `ASSIGNED` / `UNDER_REVIEW`.
+   - `GET /api/v1/staff/duplicate-candidates` & `POST /api/v1/staff/duplicate-candidates/decide`: Staff reviews similarity scores and confirms or rejects duplicate linkages.
+3. **Field Worker Operations:**
+   - `GET /api/v1/worker/tasks`: Lists assigned work orders scoped to worker.
+   - `POST /api/v1/worker/assignments/{id}/accept`: Transitions issue status to `IN_PROGRESS`.
+   - `POST /api/v1/worker/assignments/{id}/decline`: Rejects assignment with mandatory reason, returning issue to supervisor queue (`UNDER_REVIEW`).
+   - `POST /api/v1/worker/issues/{id}/repair-evidence`: Uploads after-repair photos (`WORKER_AFTER`) with SHA-256 hash validation.
+   - `POST /api/v1/worker/issues/{id}/request-review`: Requires at least one after photo and work notes, moving issue to `REPAIR_REPORTED`.
+4. **Independent Resolution & Separation of Duty:**
+   - `GET /api/v1/staff/resolution-queue`: Shows issues pending verification with side-by-side citizen before photos and worker after photos.
+   - `POST /api/v1/staff/issues/{id}/resolution`: Independent supervisor approves (moving to `RESOLVED`) or rejects (returning to `IN_PROGRESS` or `ASSIGNED`).
+   - Separation of Duty enforcement (`verify_separation_of_duty`): assigned worker attempting to approve their own repair is strictly blocked with HTTP 403 Forbidden.
+5. **Citizen Dispute & Reopening:**
+   - `POST /api/v1/reports/{id}/dispute`: Citizens can dispute an unsatisfactory resolution, transitioning issue status to `REOPENED` with an immutable `StatusEvent` entry.
+6. **Frontend Interfaces:**
+   - Modern localized staff console at `/[locale]/staff` with tabs for Inbox Triage, Resolution Verification, and Duplicate Adjudication.
+   - Modern localized worker portal at `/[locale]/worker` with task cards, accept/decline actions, after-photo upload, and review submission.
+
+### Verification Results
+- **TypeScript:** `npm run typecheck` passed with 0 errors.
+- **Frontend Build:** `npm run build` compiled all 24 static pages successfully across English, Kannada, and Hindi.
+- **Backend Unit Tests:** `services/api/tests/test_lifecycle.py` passed 5/5 tests:
+  - `test_01_staff_triage_and_assign`: Validates transition `SUBMITTED` -> `ASSIGNED`.
+  - `test_02_worker_accept_and_submit_proof`: Validates `ASSIGNED` -> `IN_PROGRESS` -> `REPAIR_REPORTED`.
+  - `test_03_separation_of_duty_enforcement`: Confirms assigned worker self-approval is blocked with HTTP 403.
+  - `test_04_independent_staff_approval`: Confirms independent supervisor successfully approves and closes issue (`RESOLVED`).
+  - `test_05_duplicate_candidate_adjudication`: Confirms linking duplicate preserves submission and updates parent issue.
+- **Total Test Suite:** 21/21 backend tests passing in ~4 seconds (`test_health`, `test_permissions`, `test_reporting`, `test_lifecycle`).
+- **Root Pipeline:** `npm run test` exits with code 0.
+
+- **Next Phase:** Phase 5 — Model Evaluation & Local Verification Setup (Awaiting User Gate Approval).

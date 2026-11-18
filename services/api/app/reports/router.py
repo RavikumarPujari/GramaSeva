@@ -421,3 +421,58 @@ def view_private_media(
 
     abs_path = storage_service.get_absolute_path(media.storage_path)
     return FileResponse(abs_path, media_type=media.mime_type)
+
+from pydantic import BaseModel
+class DisputeRequest(BaseModel):
+    reason: str
+
+@router.post("/{id}/dispute")
+def dispute_report(
+    id: str,
+    req: DisputeRequest,
+    current_user: Profile = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Citizen disputes resolution or repair proof.
+    Transitions issue status to REOPENED and creates a formal Dispute record.
+    """
+    submission = db.query(Submission).filter((Submission.id == id) | (Submission.tracking_id == id)).first()
+    if not submission:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+
+    if submission.reporter_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the reporting citizen can dispute this complaint")
+
+    issue = db.query(Issue).filter(Issue.id == submission.issue_id).first()
+    if not issue:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Associated issue missing")
+
+    prev_status = issue.status
+    issue.status = "REOPENED"
+
+    from app.models.issues import Dispute
+    dispute = Dispute(
+        issue_id=issue.id,
+        citizen_profile_id=current_user.id,
+        reason=req.reason,
+        status="OPEN",
+    )
+    db.add(dispute)
+
+    event = StatusEvent(
+        issue_id=issue.id,
+        actor_profile_id=current_user.id,
+        previous_status=prev_status,
+        next_status="REOPENED",
+        reason=f"Citizen disputed resolution: {req.reason}",
+    )
+    db.add(event)
+    db.commit()
+
+    return {
+        "status": "reopened",
+        "issue_id": issue.id,
+        "new_status": issue.status,
+        "dispute_id": dispute.id,
+    }
