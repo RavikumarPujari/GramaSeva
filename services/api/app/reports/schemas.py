@@ -41,6 +41,18 @@ class StatusEventResponse(BaseModel):
     reason: Optional[str] = None
     created_at: datetime
 
+class DuplicateSuggestionItem(BaseModel):
+    issue_id: str
+    reference_number: str
+    category: str
+    status: str
+    distance_meters: float
+    summary: Optional[str] = None
+    ward_name: Optional[str] = None
+    composite_score: float
+    explanation: str
+    created_at: datetime
+
 class ReportResponse(BaseModel):
     id: str
     tracking_id: str

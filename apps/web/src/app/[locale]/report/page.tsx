@@ -65,6 +65,21 @@ export default function ReportPage() {
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Duplicate suggestions state
+  const [duplicateSuggestions, setDuplicateSuggestions] = useState<Array<{
+    issue_id: string;
+    reference_number: string;
+    category: string;
+    status: string;
+    distance_meters: number;
+    summary?: string;
+    ward_name?: string;
+    composite_score: number;
+    explanation: string;
+    created_at: string;
+  }>>([]);
+  const [ignoredDuplicate, setIgnoredDuplicate] = useState(false);
+
   // AI Model Assistance State
   const [aiDetection, setAiDetection] = useState<{
     status: string;
@@ -162,12 +177,13 @@ export default function ReportPage() {
       setAiDetection(null);
       setAiConfirmed(false);
 
-      // Trigger advisory AI inspection asynchronously
+      // Trigger advisory AI inspection asynchronously using real model adapters
       setIsInspectingAI(true);
       try {
         const formData = new FormData();
         formData.append("file", file);
-        const res = await apiClient.postForm<any>("/ai/road-damage/inspect", formData);
+        const endpoint = category === "water_leak" ? "/ai/water-leak/inspect" : "/ai/road-damage/inspect";
+        const res = await apiClient.postForm<any>(endpoint, formData);
         if (res && res.status === "completed" && res.observations && res.observations.length > 0) {
           setAiDetection({
             status: res.status,
@@ -228,7 +244,7 @@ export default function ReportPage() {
     setStep(3);
   };
 
-  // Step 3 -> 4: Save location to draft
+  // Step 3 -> 4: Save location to draft & check duplicate suggestions
   const handleProceedToReview = async () => {
     if (draftId) {
       try {
@@ -238,8 +254,14 @@ export default function ReportPage() {
           latitude,
           longitude,
         });
+
+        // Query duplicate suggestions (README Section 4.3)
+        const sugs = await apiClient.get<any[]>(`/reports/${draftId}/duplicate-suggestions`);
+        if (sugs && sugs.length > 0) {
+          setDuplicateSuggestions(sugs);
+        }
       } catch (err) {
-        console.warn("Location save warning:", err);
+        console.warn("Location or duplicate suggestion check warning:", err);
       }
     }
     setStep(4);
@@ -652,6 +674,38 @@ export default function ReportPage() {
                 </div>
               )}
             </div>
+
+            {/* Advisory Duplicate Suggestion Notice (README Section 4.3) */}
+            {duplicateSuggestions.length > 0 && !ignoredDuplicate && (
+              <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-amber-900 uppercase tracking-wide flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-amber-600" />
+                    Possible Existing Issue Reported Nearby
+                  </span>
+                  <Badge variant="warning">
+                    {Math.round(duplicateSuggestions[0].composite_score * 100)}% Match
+                  </Badge>
+                </div>
+                <p className="text-xs text-amber-800">
+                  {duplicateSuggestions[0].explanation}. An issue (
+                  <strong>{duplicateSuggestions[0].reference_number}</strong>) is already recorded{" "}
+                  {Math.round(duplicateSuggestions[0].distance_meters)}m away.
+                </p>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[11px] text-amber-700">
+                    You can still submit your complaint as a distinct physical issue.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIgnoredDuplicate(true)}
+                    className="text-xs font-bold text-amber-900 underline hover:text-amber-950"
+                  >
+                    Different Issue (Submit Anyway)
+                  </button>
+                </div>
+              </div>
+            )}
 
             <Alert variant="warning" title="Advisory Notice">
               FixProof is a verified civic repair platform. An authorized reviewer must independently confirm the repair before closure. AI suggestions are advisory only.

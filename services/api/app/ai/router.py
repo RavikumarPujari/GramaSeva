@@ -13,6 +13,12 @@ from app.auth.dependencies import get_current_user
 # Ensure workers package is discoverable
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
 from workers.adapters.road_damage.adapter import road_damage_adapter
+from workers.adapters.water_leak.adapter import water_leak_adapter
+from workers.adapters.duplicate.similarity import (
+    compute_dhash,
+    compute_visual_similarity,
+    rank_duplicate_candidate,
+)
 
 router = APIRouter(prefix="/ai", tags=["Real AI Inference & Models"])
 
@@ -70,6 +76,7 @@ def get_ai_models_health():
     No mock health status.
     """
     rdd_health = road_damage_adapter.check_readiness()
+    leak_health = water_leak_adapter.check_readiness()
     return [
         ModelHealthItem(
             model_id=rdd_health["model_id"],
@@ -79,7 +86,16 @@ def get_ai_models_health():
             checkpoint_sha256=rdd_health["checkpoint_sha256"],
             classes=rdd_health["classes"],
             error=rdd_health["error"],
-        )
+        ),
+        ModelHealthItem(
+            model_id=leak_health["model_id"],
+            version=leak_health["version"],
+            task=leak_health["task"],
+            ready=leak_health["ready"],
+            checkpoint_sha256=leak_health["checkpoint_sha256"],
+            classes=leak_health["classes"],
+            error=leak_health["error"],
+        ),
     ]
 
 @router.post("/road-damage/inspect", response_model=AIInferenceResponse)
@@ -128,6 +144,177 @@ async def inspect_road_damage(
         model_revision=res["model_revision"],
         latency_ms=res["latency_ms"],
         prompt_message=res.get("prompt_message"),
+    )
+
+class CategoryCapabilityItem(BaseModel):
+    category: str
+    display_name: str
+    status: str  # ACTIVE_MODEL or MANUAL_FALLBACK
+    model_id: Optional[str] = None
+    evaluation_notes: str
+    requires_human_confirmation: bool = True
+
+class DuplicateCompareRequest(BaseModel):
+    sub_lat: Optional[float] = None
+    sub_lon: Optional[float] = None
+    sub_desc: Optional[str] = None
+    sub_media_id: Optional[str] = None
+    target_issue_id: str
+
+class DuplicateCompareResponse(BaseModel):
+    target_issue_id: str
+    distance_meters: float
+    spatial_score: float
+    text_score: float
+    visual_score: float
+    composite_score: float
+    explanation: str
+    is_strong_candidate: bool
+    requires_human_decision: bool = True
+
+@router.post("/water-leak/inspect", response_model=AIInferenceResponse)
+async def inspect_water_leak(
+    file: Optional[UploadFile] = File(None),
+    media_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Executes real inference using the MSunusi pipeline leak YOLO model.
+    Detects pipe leaks, water flows, and surface cracks.
+    Zero mock predictions.
+    """
+    if file:
+        file_bytes = await file.read()
+        res = water_leak_adapter.predict(file_bytes)
+    elif media_id:
+        media = db.query(MediaAsset).filter(MediaAsset.id == media_id).first()
+        if not media:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media asset not found")
+        from app.storage.service import storage_service
+        abs_path = storage_service.get_absolute_path(media.storage_path)
+        res = water_leak_adapter.predict(abs_path)
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Either a file upload or media_id query parameter is required.",
+        )
+
+    return AIInferenceResponse(
+        status=res["status"],
+        task=res["task"],
+        category_suggestion=res["category_suggestion"],
+        confidence_score=res["confidence_score"],
+        observations=[
+            DetectionItem(
+                class_id=o["class_id"],
+                label=o["label"],
+                confidence=o["confidence"],
+                bbox=o["bbox"],
+            )
+            for o in res.get("observations", [])
+        ],
+        limitations=res.get("limitations", []),
+        requires_human_review=res["requires_human_review"],
+        model_id=res["model_id"],
+        model_revision=res["model_revision"],
+        latency_ms=res["latency_ms"],
+        prompt_message=res.get("prompt_message"),
+    )
+
+@router.get("/categories/capabilities", response_model=List[CategoryCapabilityItem])
+def get_categories_ai_capabilities():
+    """
+    Auditable status of AI capability for each municipal issue category.
+    Per README Phase 7: Unsupported category falls back cleanly to manual review.
+    """
+    return [
+        CategoryCapabilityItem(
+            category="road_damage",
+            display_name="Road Damage & Potholes",
+            status="ACTIVE_MODEL",
+            model_id="oracl4-rdd-yolov8s",
+            evaluation_notes="Real YOLOv8s inference trained on CRDDC2022. Detects potholes (D40) and cracks (D00-D20).",
+            requires_human_confirmation=True,
+        ),
+        CategoryCapabilityItem(
+            category="water_leak",
+            display_name="Water Supply & Pipeline Leaks",
+            status="ACTIVE_MODEL",
+            model_id="msunusi-pipeline-leak-yolo",
+            evaluation_notes="Real YOLO custom model trained on pipeline leaks. Detects surface water leaks and pipe cracks. Street runoff puddles require human confirmation.",
+            requires_human_confirmation=True,
+        ),
+        CategoryCapabilityItem(
+            category="garbage_dump",
+            display_name="Solid Waste & Garbage Dumps",
+            status="MANUAL_FALLBACK",
+            model_id=None,
+            evaluation_notes="TACO evaluation audit: legacy Matterport Mask R-CNN framework incompatible with Python 3.14. Zero mock predictions; falls back to manual review.",
+            requires_human_confirmation=True,
+        ),
+        CategoryCapabilityItem(
+            category="street_lighting",
+            display_name="Street Lighting & Electrical",
+            status="MANUAL_FALLBACK",
+            model_id=None,
+            evaluation_notes="No verified open-source checkpoint passed local municipal verification gate. Manual reviewer triage enforced.",
+            requires_human_confirmation=True,
+        ),
+    ]
+
+@router.post("/duplicate/compare", response_model=DuplicateCompareResponse)
+def compare_duplicate_candidate(
+    req: DuplicateCompareRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Computes multi-signal similarity (spatial + text + visual) between a report draft and an existing issue.
+    Never auto-merges: returns transparent scoring breakdown and explanation for human decision.
+    """
+    target = db.query(Issue).filter(Issue.id == req.target_issue_id).first()
+    if not target:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target issue not found")
+
+    # Get target coordinates & description
+    target_sub = db.query(Submission).filter(Submission.issue_id == target.id).order_by(Submission.created_at.asc()).first()
+    target_lat = target_sub.latitude if target_sub else None
+    target_lon = target_sub.longitude if target_sub else None
+    target_desc = target_sub.description if target_sub else ""
+
+    # Visual hashes
+    sub_hash = None
+    target_hash = None
+    if req.sub_media_id:
+        sub_media = db.query(MediaAsset).filter(MediaAsset.id == req.sub_media_id).first()
+        if sub_media:
+            sub_hash = sub_media.file_hash
+
+    target_media = db.query(MediaAsset).filter(MediaAsset.issue_id == target.id).first()
+    if target_media:
+        target_hash = target_media.file_hash
+
+    rank_result = rank_duplicate_candidate(
+        sub_lat=req.sub_lat,
+        sub_lon=req.sub_lon,
+        sub_desc=req.sub_desc,
+        sub_hash=sub_hash,
+        issue_lat=target_lat,
+        issue_lon=target_lon,
+        issue_desc=target_desc,
+        issue_hash=target_hash,
+        category_match=True,
+    )
+
+    return DuplicateCompareResponse(
+        target_issue_id=target.id,
+        distance_meters=rank_result["distance_meters"],
+        spatial_score=rank_result["spatial_score"],
+        text_score=rank_result["text_score"],
+        visual_score=rank_result["visual_score"],
+        composite_score=rank_result["composite_score"],
+        explanation=rank_result["explanation"],
+        is_strong_candidate=rank_result["is_strong_candidate"],
+        requires_human_decision=True,
     )
 
 @router.get("/runs/{id}", response_model=List[ModelRunResponse])

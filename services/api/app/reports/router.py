@@ -1,5 +1,6 @@
 import random
 import os
+import sys
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -25,7 +26,11 @@ from app.reports.schemas import (
     ReportResponse,
     MediaAssetResponse,
     StatusEventResponse,
+    DuplicateSuggestionItem,
 )
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
+from workers.adapters.duplicate.similarity import rank_duplicate_candidate
 
 router = APIRouter(prefix="/reports", tags=["Citizen Reporting & Evidence"])
 
@@ -587,4 +592,83 @@ def get_report_feedback(
         "is_satisfied": fb.is_satisfied,
         "created_at": fb.created_at,
     }
+
+@router.get("/{id}/duplicate-suggestions", response_model=List[DuplicateSuggestionItem])
+def get_report_duplicate_suggestions(
+    id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Retrieves transparent duplicate suggestions for a report draft or submitted complaint.
+    Enables citizen self-serve duplicate awareness during reporting.
+    Never auto-merges (README Section 4.3).
+    """
+    submission = db.query(Submission).filter((Submission.id == id) | (Submission.tracking_id == id)).first()
+    if not submission:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+
+    sub_media = db.query(MediaAsset).filter(MediaAsset.submission_id == submission.id).first()
+    sub_hash = sub_media.file_hash if sub_media else None
+
+    # Search existing issues with matching category
+    query = (
+        db.query(Issue)
+        .filter(
+            Issue.id != submission.issue_id,
+            Issue.category == submission.category,
+            Issue.status.in_(["SUBMITTED", "UNDER_REVIEW", "ASSIGNED", "IN_PROGRESS", "REPAIR_REPORTED"]),
+        )
+    )
+
+    other_issues = query.all()
+    suggestions: List[DuplicateSuggestionItem] = []
+
+    for issue in other_issues:
+        target_sub = db.query(Submission).filter(Submission.issue_id == issue.id).order_by(Submission.created_at.asc()).first()
+        target_desc = target_sub.description if target_sub else ""
+        target_lat = issue.latitude or (target_sub.latitude if target_sub else None)
+        target_lon = issue.longitude or (target_sub.longitude if target_sub else None)
+
+        target_media = db.query(MediaAsset).filter(MediaAsset.issue_id == issue.id).first()
+        target_hash = target_media.file_hash if target_media else None
+
+        rank_res = rank_duplicate_candidate(
+            sub_lat=submission.latitude,
+            sub_lon=submission.longitude,
+            sub_desc=submission.description,
+            sub_hash=sub_hash,
+            issue_lat=target_lat,
+            issue_lon=target_lon,
+            issue_desc=target_desc,
+            issue_hash=target_hash,
+            category_match=True,
+            max_radius=500.0,
+        )
+
+        distance = rank_res["distance_meters"]
+        exact_sha_match = bool(sub_hash and target_hash and sub_hash == target_hash)
+
+        # Only suggest if within 500m or strong candidate
+        if distance > 500 and not exact_sha_match:
+            continue
+
+        ward_name = issue.locality_unit.name_en if issue.locality_unit else "Ward Unknown"
+
+        suggestions.append(
+            DuplicateSuggestionItem(
+                issue_id=issue.id,
+                reference_number=issue.reference_number,
+                category=issue.category,
+                status=issue.status,
+                distance_meters=distance,
+                summary=f"{issue.category} at {ward_name}",
+                ward_name=ward_name,
+                composite_score=rank_res["composite_score"],
+                explanation=rank_res["explanation"],
+                created_at=issue.created_at,
+            )
+        )
+
+    suggestions.sort(key=lambda s: s.composite_score, reverse=True)
+    return suggestions
 

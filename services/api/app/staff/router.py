@@ -1,10 +1,15 @@
 import math
+import sys
+import os
 from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.core.database import get_db
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
+from workers.adapters.duplicate.similarity import rank_duplicate_candidate, compute_haversine_distance
 from app.models.users import Profile, RoleAssignment
 from app.models.localities import LocalityUnit, Department
 from app.models.issues import (
@@ -228,11 +233,16 @@ def get_duplicate_candidates(
 ):
     """
     Searches for nearby physical issues that may be duplicate reports.
-    Uses category and proximity matching. Never auto-merges (README Section 4.3).
+    Uses multi-signal ranking (spatial, text, and visual similarity).
+    Never auto-merges: requires explicit human decision (README Section 4.3).
     """
     sub = db.query(Submission).filter(Submission.id == submission_id).first()
     if not sub:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Submission not found")
+
+    # Get submission media hash if available
+    sub_media = db.query(MediaAsset).filter(MediaAsset.submission_id == sub.id).first()
+    sub_hash = sub_media.file_hash if sub_media else None
 
     candidates: List[DuplicateCandidateItem] = []
     
@@ -249,14 +259,35 @@ def get_duplicate_candidates(
     other_issues = query.all()
 
     for issue in other_issues:
-        distance = 0.0
-        if sub.latitude and sub.longitude and issue.latitude and issue.longitude:
-            distance = calculate_haversine_distance(
-                sub.latitude, sub.longitude, issue.latitude, issue.longitude
-            )
-            # Within 300 meters is a strong candidate
-            if distance > 1000:
-                continue
+        # Get target issue primary submission & media
+        target_sub = db.query(Submission).filter(Submission.issue_id == issue.id).order_by(Submission.created_at.asc()).first()
+        target_desc = target_sub.description if target_sub else ""
+        target_lat = issue.latitude or (target_sub.latitude if target_sub else None)
+        target_lon = issue.longitude or (target_sub.longitude if target_sub else None)
+
+        target_media = db.query(MediaAsset).filter(MediaAsset.issue_id == issue.id).first()
+        target_hash = target_media.file_hash if target_media else None
+
+        # Check for exact photo re-upload match
+        exact_sha_match = bool(sub_hash and target_hash and sub_hash == target_hash)
+
+        rank_res = rank_duplicate_candidate(
+            sub_lat=sub.latitude,
+            sub_lon=sub.longitude,
+            sub_desc=sub.description,
+            sub_hash=sub_hash,
+            issue_lat=target_lat,
+            issue_lon=target_lon,
+            issue_desc=target_desc,
+            issue_hash=target_hash,
+            category_match=True,
+            max_radius=500.0,
+        )
+
+        distance = rank_res["distance_meters"]
+        # Skip if beyond 1000 meters unless exact image match
+        if distance > 1000 and not exact_sha_match:
+            continue
 
         # Locality unit name
         ward_name = issue.locality_unit.name_en if issue.locality_unit else "Ward Unknown"
@@ -270,12 +301,18 @@ def get_duplicate_candidates(
                 distance_meters=distance,
                 summary=f"{issue.category} at {ward_name}",
                 ward_name=ward_name,
+                spatial_score=rank_res["spatial_score"],
+                text_score=rank_res["text_score"],
+                visual_score=rank_res["visual_score"],
+                composite_score=rank_res["composite_score"],
+                explanation=rank_res["explanation"],
+                is_strong_candidate=rank_res["is_strong_candidate"],
                 created_at=issue.created_at,
             )
         )
 
-    # Sort by closest distance
-    candidates.sort(key=lambda c: c.distance_meters)
+    # Sort by highest composite score first
+    candidates.sort(key=lambda c: (c.composite_score or 0.0), reverse=True)
     return candidates
 
 @router.post("/duplicate-candidates/decide")
@@ -336,6 +373,7 @@ def decide_duplicate(
         db.commit()
         return {
             "status": "linked",
+            "decision": "CONFIRMED_DUPLICATE",
             "submission_tracking_id": sub.tracking_id,
             "linked_to_issue": target_issue.reference_number,
         }
@@ -354,6 +392,7 @@ def decide_duplicate(
         db.commit()
         return {
             "status": "kept_separate",
+            "decision": "REJECTED_DIFFERENT",
             "submission_tracking_id": sub.tracking_id,
         }
 

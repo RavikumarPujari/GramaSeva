@@ -225,4 +225,60 @@
 - **Total Test Suite:** 32/32 backend tests passing in ~10s (`test_health`, `test_permissions`, `test_reporting`, `test_lifecycle`, `test_public_and_analytics`, `test_ai_road_damage`).
 - **Root Pipeline:** `npm run test` exits with code 0.
 
-- **Next Phase:** Phase 7 — Duplicate matching and other AI candidates (Awaiting User Gate Approval).
+- **Next Phase:** Phase 7 — Duplicate matching and other AI candidates (Completed).
+
+---
+
+## [Phase 7] — Duplicate Matching and Other AI Candidates
+
+**Date:** 2026-11-18  
+**Scope:** Multi-signal duplicate ranking engine, pipeline water leak model verification, TACO litter model compatibility evaluation, exact-copy image detection, transparent duplicate explanations, and zero auto-merge enforcement.
+
+### Implemented Artifacts & Key Changes
+1. **Multi-Signal Duplicate Matching Engine:**
+   - [services/workers/adapters/duplicate/similarity.py](file:///d:/Projects/Citizen/services/workers/adapters/duplicate/similarity.py):
+     - **Spatial Distance:** Haversine great-circle calculation, normalized over search radius (0–500m).
+     - **Textual Similarity:** Jaccard token overlap between citizen complaint descriptions.
+     - **Visual Similarity:** 64-bit Difference Hash (`dHash`) perceptual hashing robust to recompression and thumbnailing.
+     - **Exact Copy Detection:** SHA-256 byte digest comparison (flags identical re-uploaded photos with `visual_score = 1.0`).
+     - **Composite Ranking & Transparent Explanation:** `0.4 * spatial + 0.3 * text + 0.3 * visual`. Generates human-readable explanations (e.g. *"Matching category · 18m away · 88% visual image similarity · 52% description overlap"*).
+2. **Never Auto-Merge Rule Enforcement:**
+   - [services/api/app/staff/router.py](file:///d:/Projects/Citizen/services/api/app/staff/router.py):
+     - `GET /api/v1/staff/duplicate-candidates`: Returns ranked candidates with multi-signal score breakdown and explainable reasons. Submissions remain strictly distinct.
+     - `POST /api/v1/staff/duplicate-candidates/decide`: Authority reviewer explicitly chooses `LINK_DUPLICATE` (preserves citizen submission and evidence) or `KEEP_SEPARATE` (confirms distinct physical issue). Generates immutable audit records in `duplicate_candidates` and `status_events`.
+3. **Citizen Duplicate Awareness API:**
+   - [services/api/app/reports/router.py](file:///d:/Projects/Citizen/services/api/app/reports/router.py):
+     - `GET /api/v1/reports/{id}/duplicate-suggestions`: Provides citizens with advisory duplicate notifications during the reporting wizard before submission.
+     - Transparently lets the citizen reject the suggestion and submit as a distinct physical issue.
+4. **Water Leak AI Model Integration:**
+   - Checkpoint: `services/workers/models/pipeline_leak_detection.pt` (5,468,691 bytes, SHA-256: `8670e5cef00b77e891cc48ce60c16c46b1d59e220c8f49a68db7f399680838ba`).
+   - Pinned Source Repository: `MSunusi/pipeline-leak-detection` @ commit `49a174c83fa880bb6eeb0bf8032e54ee7589d892`.
+   - Manifest: [services/workers/model-manifests/water-leak.yaml](file:///d:/Projects/Citizen/services/workers/model-manifests/water-leak.yaml).
+   - Adapter: [services/workers/adapters/water_leak/adapter.py](file:///d:/Projects/Citizen/services/workers/adapters/water_leak/adapter.py): Real PyTorch/Ultralytics forward pass detecting `crack`, `gas`, `leak`, `no leak`, `water`.
+   - Inspection Endpoint: `POST /api/v1/ai/water-leak/inspect`.
+5. **Candidate Evaluation & Fallback Audit Report:**
+   - [services/workers/eval/candidate_models_evaluation_report.md](file:///d:/Projects/Citizen/services/workers/eval/candidate_models_evaluation_report.md):
+     - **Water Leak Model:** Evaluated and integrated with advisory prompt constraint (*"Possible visible water leak; source and flow are not confirmed. Please confirm."*).
+     - **TACO Litter Model:** Framework compatibility audit revealed legacy Matterport Mask R-CNN (TensorFlow 1.x / Keras 2.x) incompatibility with modern Python 3.14. Evaluated and audited; clean fallback to manual health inspector review enforced with zero mock predictions.
+     - **Meta SSCD & Duplicate Perceptual Hashing:** Evaluated vector descriptor overhead; integrated exact SHA-256 copy detection and 64-bit dHash perceptual similarity.
+     - **Multimodal VLM (Qwen-VL):** Evaluated privacy and memory constraints (16GB+ VRAM required); deferred on local edge nodes to prevent latency spikes.
+   - Capability Endpoint: `GET /api/v1/ai/categories/capabilities`.
+   - Live Model Registry Health: `GET /api/v1/ai/models/health` reports readiness of both Road Damage and Water Leak models.
+6. **Frontend Integration:**
+   - [apps/web/src/app/[locale]/staff/page.tsx](file:///d:/Projects/Citizen/apps/web/src/app/[locale]/staff/page.tsx): Updated Duplicate Review tab with multi-signal breakdown cards (spatial distance, text overlap, visual similarity, composite ranking) and explicit human adjudication buttons ("Link Submission to Issue" vs "Keep Separate Issue").
+   - [apps/web/src/app/[locale]/report/page.tsx](file:///d:/Projects/Citizen/apps/web/src/app/[locale]/report/page.tsx): Integrated real AI inspection for water leak category and advisory duplicate suggestion banner in Review step with "Different Issue (Submit Anyway)" override.
+
+### Verification Results
+- **TypeScript:** `npm run web:typecheck` passed with 0 errors.
+- **Frontend Build:** `npm run web:build` compiled all 24 static pages successfully across English, Kannada, and Hindi.
+- **Unit Test Suite:** `services/api/tests/test_duplicates_and_candidates.py` passed 7/7 tests:
+  - `test_01_multi_signal_duplicate_ranking_math`: Haversine distance, Jaccard text overlap, dHash perceptual similarity, composite scoring.
+  - `test_02_no_automatic_duplicate_merge`: Querying duplicate candidates leaves submission unlinked; explicit decision creates audit trail in `duplicate_candidates`.
+  - `test_03_exact_copy_image_detection`: Exact byte SHA-256 match achieves visual similarity 1.0.
+  - `test_04_water_leak_model_forward_pass`: Checkpoint hash matches `8670e5ce...`, real PyTorch forward pass returns structured observations.
+  - `test_05_unsupported_category_fallback`: Solid waste reports fall back to manual review with auditable record.
+  - `test_06_model_health_registry`: Live health returned for all installed real models.
+  - `test_07_citizen_duplicate_suggestions`: Transparent duplicate suggestions returned during reporting without modifying drafts.
+- **Total Backend Tests:** **39/39 backend tests passing** in `npm run test` (100% pass rate).
+
+- **Next Phase:** Phase 8 — Translation, evidence assistance and advanced features (Awaiting User Gate Approval).

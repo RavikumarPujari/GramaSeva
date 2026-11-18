@@ -1,0 +1,39 @@
+# FixProof Model Manifest: Litter and Solid Waste Detection Evaluation
+model_id: "taco-litter-dataset-eval"
+name: "TACO Waste in the Wild (Dataset & Model Evaluation)"
+version: "1.0.0"
+task: "litter_detection"
+category_mapped: "garbage_dump"
+
+source_repository:
+  url: "https://github.com/pedropro/TACO"
+  pinned_commit: "40d17d5ce3909772bf2eb80b435ff20ddabfa356"
+  license: "CC BY 4.0 (Dataset) / MIT (Code)"
+  author: "Pedro F. Proença and Pedro Simões"
+
+dataset_evaluation:
+  classes_count: 60
+  super_categories:
+    - "Bottle"
+    - "Bottle cap"
+    - "Can"
+    - "Cigarette"
+    - "Cup"
+    - "Lid"
+    - "Other plastic"
+    - "Paper"
+    - "Plastic bag & wrapper"
+    - "Straw"
+  compatibility_audit:
+    status: "INCOMPATIBLE_LEGACY_FRAMEWORK"
+    reason: "Original detector uses Matterport Mask R-CNN (TensorFlow 1.x / Keras 2.x), which is unmaintained and incompatible with Python 3.14 / PyTorch 2.x host environments."
+    recommendation: "Use TACO COCO annotations to fine-tune modern YOLOv8-Waste model when GPU compute permits."
+    operational_fallback: "Solid waste reports fall back to standard manual citizen reporting and reviewer triage. Zero fabricated predictions."
+
+governance_and_limitations:
+  advisory_only: true
+  requires_human_confirmation: true
+  prompt_wording: "Visible litter may be present. Please confirm."
+  limitations:
+    - "Automated litter detection is currently in advisory evaluation mode."
+    - "Manual triage active for all solid waste complaints."

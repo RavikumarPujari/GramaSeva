@@ -58,4 +58,10 @@ class DuplicateCandidateItem(BaseModel):
     summary: Optional[str] = None
     village_name: Optional[str] = None
     ward_name: Optional[str] = None
+    spatial_score: Optional[float] = None
+    text_score: Optional[float] = None
+    visual_score: Optional[float] = None
+    composite_score: Optional[float] = None
+    explanation: Optional[str] = None
+    is_strong_candidate: Optional[bool] = None
     created_at: datetime
