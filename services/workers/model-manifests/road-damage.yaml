@@ -1,0 +1,48 @@
+# FixProof Model Manifest: Road Damage Detection
+model_id: "oracl4-rdd-yolov8s"
+name: "YOLOv8 Road Damage Detector (India & Japan CRDDC2022)"
+version: "1.0.0"
+task: "road_damage_detection"
+category_mapped: "road_damage"
+
+source_repository:
+  url: "https://github.com/oracl4/RoadDamageDetection"
+  pinned_commit: "c0e8b7c35b22f27273ef8625111a7cd63e3c9359"
+  license: "GPL-3.0 / Ultralytics AGPLv3 / CRDDC2022 research terms"
+  author: "oracl4 (Ministry of Public Works and Housing Challenge 2023)"
+
+checkpoint:
+  filename: "YOLOv8_Small_RDD.pt"
+  relative_path: "services/workers/models/YOLOv8_Small_RDD.pt"
+  file_size_bytes: 89569358
+  sha256: "7f2ceb8f6f3dfcc8fffd98cb488281be725150aed0f06cf21c4db72b5cd0a62b"
+  architecture: "YOLOv8s (PyTorch 2.x / Ultralytics 8.x)"
+  input_resolution: [640, 640]
+  supported_devices: ["cpu", "cuda"]
+
+classes:
+  0:
+    id: 0
+    name: "Longitudinal Crack"
+    description: "Linear cracks along the driving direction of the road surface"
+  1:
+    id: 1
+    name: "Transverse Crack"
+    description: "Cracks perpendicular to the road centerline"
+  2:
+    id: 2
+    name: "Alligator Crack"
+    description: "Interconnected series of fatigue cracks resembling reptilian skin"
+  3:
+    id: 3
+    name: "Potholes"
+    description: "Bowl-shaped holes of varying sizes in the pavement surface"
+
+governance_and_limitations:
+  advisory_only: true
+  requires_human_confirmation: true
+  limitations:
+    - "Camera 2D bounding boxes cannot measure depth or subsurface structural failure."
+    - "Puddles, wet tarmac, or shadows can increase false positive rates."
+    - "Model outputs must never directly authorize payment or approve repair work."
+    - "Citizen or staff reviewer confirmation is strictly required."

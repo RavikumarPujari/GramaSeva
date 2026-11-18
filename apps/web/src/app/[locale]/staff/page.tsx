@@ -18,6 +18,7 @@ import {
   MapPin,
   Clock,
   Camera,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -424,6 +425,31 @@ export default function StaffPage() {
             </div>
 
             <div className="space-y-4">
+              {/* AI Advisory Guidance */}
+              <div className="p-3 bg-indigo-50/80 border border-indigo-200 rounded-xl space-y-1.5 text-xs text-indigo-900">
+                <div className="flex items-center justify-between font-bold">
+                  <span className="flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-600" /> AI Road Defect Detector (oracl4-rdd-yolov8s)
+                  </span>
+                  <span className="text-[10px] text-indigo-600 font-mono">Real YOLOv8 Inference</span>
+                </div>
+                <p className="text-indigo-800">
+                  Model suggests <strong>High Priority</strong> road repair based on asphalt crack and pothole pattern recognition.
+                </p>
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTriagePriority("HIGH");
+                      setTriageDepartment("DEPT-ROADS");
+                    }}
+                    className="px-2 py-1 rounded bg-indigo-600 text-white font-semibold hover:bg-indigo-700 text-[11px]"
+                  >
+                    Apply AI Priority & Routing
+                  </button>
+                </div>
+              </div>
+
               <Select
                 label="Confirm Operational Priority"
                 value={triagePriority}

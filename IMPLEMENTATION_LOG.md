@@ -174,4 +174,55 @@
 - **Total Test Suite:** 27/27 backend tests passing in ~2.5s (`test_health`, `test_permissions`, `test_reporting`, `test_lifecycle`, `test_public_and_analytics`).
 - **Root Pipeline:** `npm run test` exits with code 0.
 
-- **Next Phase:** Phase 6 — First real AI model: road damage (Awaiting User Gate Approval).
+- **Next Phase:** Phase 6 — First real AI model: road damage (Completed).
+
+---
+
+## Phase 6: First Real AI Model: Road Damage
+
+**Status:** Completed & Verified
+**Date:** 2026-11-18
+
+### Objectives & Deliverables
+1. **Model Provenance, Inspection & Checkpoint Pinning:**
+   - Evaluated and cloned candidate repository: `https://github.com/oracl4/RoadDamageDetection` at commit `c0e8b7c35b22f27273ef8625111a7cd63e3c9359`.
+   - Identified and pinned official checkpoint `YOLOv8_Small_RDD.pt` (89,569,358 bytes) trained on the Crowdsensing-based Road Damage Detection Challenge (CRDDC2022) India & Japan road datasets.
+   - Verified exact SHA-256 integrity hash: `7f2ceb8f6f3dfcc8fffd98cb488281be725150aed0f06cf21c4db72b5cd0a62b`.
+   - Documented complete architecture, licensing (GPL-3.0 / AGPL / CRDDC2022 research terms), and governance in [services/workers/model-manifests/road-damage.yaml](file:///d:/Projects/Citizen/services/workers/model-manifests/road-damage.yaml).
+2. **Environment & Worker Isolation:**
+   - Isolated model execution in `services/workers/` separate from the Next.js frontend and main API transactions.
+   - Pinned 4 road defect classes: `Longitudinal Crack`, `Transverse Crack`, `Alligator Crack`, `Potholes`.
+   - Model weights ignored from application Git via `.gitignore`.
+3. **Real Inference Adapter & Audit Storage:**
+   - [services/workers/adapters/road_damage/adapter.py](file:///d:/Projects/Citizen/services/workers/adapters/road_damage/adapter.py): Executes real forward passes using PyTorch 2.10 and Ultralytics 8.4.21 without mock predictions.
+   - Measures actual inference latency (ms), extracts bounding boxes, confidences, and labels.
+   - Persists structured inference results in `model_runs` table (`ModelRun` schema) linked to `media_assets`, `submissions`, and `issues`.
+4. **Persistent Asynchronous AI Job Worker:**
+   - [services/workers/app/worker.py](file:///d:/Projects/Citizen/services/workers/app/worker.py): Reads queued jobs from `jobs` table (`task_name="road_damage_inference"`), executes inference asynchronously, and updates job completion.
+5. **AI Inspection & Human Confirmation API:**
+   - `GET /api/v1/ai/models/health`: Live health, checkpoint hash, and readiness status.
+   - `POST /api/v1/ai/road-damage/inspect`: Runs real forward pass on an uploaded photo or existing media asset.
+   - `GET /api/v1/ai/runs/{id}`: Returns model runs recorded for an issue or submission.
+   - `POST /api/v1/ai/runs/{run_id}/confirm`: Citizen or reviewer confirms or rejects AI category suggestion. Enforces rule: *AI assists, humans decide*.
+6. **Graceful Fallback & Resilient Complaint Workflow:**
+   - If the checkpoint file is missing, device fails, or model is disabled, the adapter returns `status="unavailable"`, `requires_human_review=true`, and does not crash the server.
+   - Citizen reporting and staff triage continue seamlessly under manual review.
+7. **Frontend Citizen & Staff Confirmation UI:**
+   - Citizen Report Wizard: Uploading a road damage photo triggers real background inspection, displaying an advisory suggestion badge with latency, confidence, and confirm buttons.
+   - Staff Triage Modal: Reviewer sees AI defect recommendations with quick-apply priority options.
+8. **Held-Out Evaluation Report:**
+   - Documented in [services/workers/eval/held_out_evaluation_report.md](file:///d:/Projects/Citizen/services/workers/eval/held_out_evaluation_report.md) with mAP@50 (0.612), precision/recall metrics, CPU latency benchmarks, and real-world failure mode limitations (night photos, unpaved dirt tracks, puddles).
+
+### Verification Results
+- **TypeScript:** `npm run typecheck` passed with 0 errors.
+- **Frontend Build:** `npm run build` compiled all 24 static pages successfully across English, Kannada, and Hindi.
+- **Backend Unit Tests:** `services/api/tests/test_ai_road_damage.py` passed 5/5 tests:
+  - `test_01_actual_checkpoint_loads_and_verifies_hash`: Checkpoint hash matches `7f2ceb8f...`, 4 classes registered.
+  - `test_02_actual_forward_pass_inference_succeeds`: Real PyTorch model execution succeeds, latency > 0.
+  - `test_03_missing_model_returns_clear_unavailable_without_crashing`: Graceful fallback without unhandled exceptions.
+  - `test_04_job_worker_processes_inference_and_persists_model_run`: Job worker updates job to COMPLETED and inserts `ModelRun`.
+  - `test_05_human_confirmation_workflow`: Human confirmation updates `confirmed_decision` and issue category.
+- **Total Test Suite:** 32/32 backend tests passing in ~10s (`test_health`, `test_permissions`, `test_reporting`, `test_lifecycle`, `test_public_and_analytics`, `test_ai_road_damage`).
+- **Root Pipeline:** `npm run test` exits with code 0.
+
+- **Next Phase:** Phase 7 — Duplicate matching and other AI candidates (Awaiting User Gate Approval).

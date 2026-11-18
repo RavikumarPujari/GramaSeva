@@ -210,3 +210,33 @@ class Job(Base, TimestampMixin):
     error_message = Column(Text, nullable=True)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
+
+class ModelRun(Base, TimestampMixin):
+    """Immutable record of real AI inference runs, metrics, detections, and human confirmations."""
+    __tablename__ = "model_runs"
+
+    job_id = Column(String(36), nullable=True, index=True)
+    media_asset_id = Column(String(36), ForeignKey("media_assets.id", ondelete="CASCADE"), nullable=True, index=True)
+    issue_id = Column(String(36), ForeignKey("issues.id", ondelete="CASCADE"), nullable=True, index=True)
+    submission_id = Column(String(36), ForeignKey("submissions.id", ondelete="CASCADE"), nullable=True, index=True)
+
+    model_id = Column(String(100), nullable=False, index=True)
+    model_revision = Column(String(64), nullable=False)
+    task = Column(String(50), nullable=False)
+    # Status: COMPLETED, FAILED, UNAVAILABLE, NO_DETECTIONS
+    status = Column(String(50), default="COMPLETED", nullable=False)
+    category_suggestion = Column(String(50), nullable=True)
+    confidence_score = Column(Float, nullable=True)
+    detections_json = Column(Text, nullable=True)
+    latency_ms = Column(Integer, default=0, nullable=False)
+    requires_human_review = Column(Boolean, default=True, nullable=False)
+    limitations_json = Column(Text, nullable=True)
+
+    # Human review / confirmation
+    confirmed_by_profile_id = Column(String(36), ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True)
+    confirmed_decision = Column(String(50), default="PENDING", nullable=False)  # PENDING, CONFIRMED, REJECTED
+
+    media_asset = relationship("MediaAsset")
+    issue = relationship("Issue")
+    submission = relationship("Submission")
+    confirmed_by = relationship("Profile")

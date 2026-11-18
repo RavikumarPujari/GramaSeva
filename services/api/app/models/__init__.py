@@ -14,6 +14,7 @@ from app.models.issues import (
     StatusEvent,
     AuditLog,
     Job,
+    ModelRun,
 )
 
 __all__ = [
@@ -36,4 +37,5 @@ __all__ = [
     "StatusEvent",
     "AuditLog",
     "Job",
+    "ModelRun",
 ]

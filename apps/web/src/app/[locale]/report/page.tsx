@@ -65,6 +65,19 @@ export default function ReportPage() {
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // AI Model Assistance State
+  const [aiDetection, setAiDetection] = useState<{
+    status: string;
+    category_suggestion?: string;
+    confidence?: number;
+    defect_label?: string;
+    latency_ms?: number;
+    prompt_message?: string;
+    model_id?: string;
+  } | null>(null);
+  const [isInspectingAI, setIsInspectingAI] = useState(false);
+  const [aiConfirmed, setAiConfirmed] = useState(false);
+
   // Dynamic localities from API
   const [villages, setVillages] = useState<LocalityUnit[]>([]);
   const [wards, setWards] = useState<LocalityUnit[]>([]);
@@ -140,12 +153,38 @@ export default function ReportPage() {
   };
 
   // Handle file select
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       setSelectedFile(file);
       setPreviewUrl(URL.createObjectURL(file));
       setErrorMessage(null);
+      setAiDetection(null);
+      setAiConfirmed(false);
+
+      // Trigger advisory AI inspection asynchronously
+      setIsInspectingAI(true);
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await apiClient.postForm<any>("/ai/road-damage/inspect", formData);
+        if (res && res.status === "completed" && res.observations && res.observations.length > 0) {
+          setAiDetection({
+            status: res.status,
+            category_suggestion: res.category_suggestion,
+            confidence: res.confidence_score,
+            defect_label: res.observations[0].label,
+            latency_ms: res.latency_ms,
+            prompt_message: res.prompt_message,
+            model_id: res.model_id,
+          });
+        }
+      } catch (err) {
+        // AI failure degrades gracefully - manual reporting continues seamlessly
+        console.warn("Advisory AI inspection unavailable:", err);
+      } finally {
+        setIsInspectingAI(false);
+      }
     }
   };
 
@@ -355,6 +394,67 @@ export default function ReportPage() {
                     Change Photo
                   </Button>
                 </div>
+
+                {/* AI Model Advisory Detection Box */}
+                {isInspectingAI && (
+                  <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-xs text-indigo-700 flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                    Running real AI road damage inspection ({aiDetection?.model_id || "oracl4-rdd-yolov8s"})...
+                  </div>
+                )}
+
+                {aiDetection && !isInspectingAI && (
+                  <div className="p-4 bg-indigo-50/90 border border-indigo-200 rounded-xl space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                        <Sparkles className="w-4 h-4 text-indigo-600" />
+                        AI Advisory Assistance ({aiDetection.model_id})
+                      </span>
+                      <span className="text-[11px] text-indigo-700 font-mono">
+                        {aiDetection.latency_ms}ms latency
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-indigo-900 leading-relaxed">
+                      {aiDetection.prompt_message ||
+                        `Possible road damage detected: ${aiDetection.defect_label} (${Math.round(
+                          (aiDetection.confidence || 0) * 100
+                        )}% confidence).`}
+                    </p>
+
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      {!aiConfirmed ? (
+                        <>
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            onClick={() => {
+                              setCategory("road_damage");
+                              setAiConfirmed(true);
+                            }}
+                          >
+                            Confirm Road Damage Category
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setAiDetection(null)}
+                          >
+                            Keep Current ({tCat(category as any) || category})
+                          </Button>
+                        </>
+                      ) : (
+                        <span className="text-xs text-emerald-800 font-semibold flex items-center gap-1 bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Category confirmed as Road Damage
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="text-[11px] text-slate-500 italic mt-1">
+                      FixProof Governance Rule: AI assists, humans decide. 2D photos cannot verify subsurface damage or pothole depth.
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
               <div
