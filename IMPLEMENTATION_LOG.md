@@ -119,4 +119,59 @@
 - **Total Test Suite:** 21/21 backend tests passing in ~4 seconds (`test_health`, `test_permissions`, `test_reporting`, `test_lifecycle`).
 - **Root Pipeline:** `npm run test` exits with code 0.
 
-- **Next Phase:** Phase 5 — Model Evaluation & Local Verification Setup (Awaiting User Gate Approval).
+- **Next Phase:** Phase 5 — Public dashboard, notifications and ward analytics (Completed).
+
+---
+
+## Phase 5: Public Dashboard, Notifications and Ward Analytics
+
+**Status:** Completed & Verified
+**Date:** 2026-11-18
+
+### Objectives & Deliverables
+1. **Sanitized Public Projection:**
+   - `GET /api/v1/public/issues`: Public projection of physical issues, generalized coordinates (~100m precision) to protect home privacy. Zero private personal data exposed (no reporter names, emails, phones, or raw notes).
+   - `GET /api/v1/public/issues/{id}`: Detailed sanitized issue projection with timeline (official actor roles scrubbed) and approved public media only.
+   - `GET /api/v1/public/media/{id}/view`: Media security gate. Rejects unapproved or quarantined media with **HTTP 403 Forbidden**.
+2. **Public Map/List View & Locality Filters:**
+   - `/[locale]/public` offers an accessible list view and interactive geographic cluster map view.
+   - Interactive filters: Village, Ward, Category, and Status.
+   - Shows public counts distinguishing unique physical `Issue` records from individual citizen `Submission` records.
+3. **In-App Notification Engine:**
+   - `Notification` model with idempotent `dedup_key` constraint to prevent duplicate alerts on retries or repeated checks.
+   - `GET /api/v1/notifications`: Lists in-app notifications with unread counts.
+   - `POST /api/v1/notifications/{id}/read` & `POST /api/v1/notifications/read-all`: Updates read states.
+   - Notification dispatch integrated into key lifecycle transitions (`SUBMISSION_RECEIVED`, `ISSUE_ASSIGNED`, `WORK_STARTED`, `REPAIR_REPORTED`, `RESOLUTION_APPROVED`, `ISSUE_REOPENED`).
+4. **Village / Ward / Department Analytics:**
+   - `GET /api/v1/public/analytics`: Computes ward accountability metrics:
+     - `total_unique_issues` vs. `total_submissions`
+     - Active in progress, repair reported, resolved, reopened, and overdue counts
+     - Village and ward breakdowns derived dynamically from configured `LocalityUnit` data
+     - Category and department breakdowns
+     - Average resolution duration
+5. **Operational SLA Configuration & Overdue Tracking:**
+   - Operational target calculation in `app/core/sla.py` (explicitly labeled as "Operational Target", not statutory deadline unless verified).
+   - Category overrides (water: 24h, garbage: 48h, road damage: 72h) and priority defaults.
+   - Calculates target hours, hours remaining, and overdue status.
+6. **Citizen Feedback & Dispute UI:**
+   - `POST /api/v1/reports/{id}/feedback`: Citizens rate resolved issues (1-5 stars) with comments.
+   - `POST /api/v1/reports/{id}/dispute`: Citizens can dispute marked repairs ("Problem Not Fixed"), reopening the issue (`REOPENED`) and notifying staff.
+7. **Public Media Moderation Workflow:**
+   - `POST /api/v1/staff/media/{id}/approve-public`: Scoped staff moderator approves media for public projection.
+   - `POST /api/v1/staff/media/{id}/quarantine`: Quarantines inappropriate or sensitive media.
+   - `POST /api/v1/staff/media/{id}/redact`: Marks media redacted (blurred face/plate) and approved.
+
+### Verification Results
+- **TypeScript:** `npm run typecheck` passed with 0 errors.
+- **Frontend Build:** `npm run build` compiled all 24 static pages successfully across English, Kannada, and Hindi.
+- **Backend Unit Tests:** `services/api/tests/test_public_and_analytics.py` passed 6/6 tests:
+  - `test_01_public_media_access_control`: Confirms unapproved media returns HTTP 403; approved media is served.
+  - `test_02_public_issue_sanitization`: Confirms private reporter data and coordinates are generalized and sanitized.
+  - `test_03_accurate_public_counts_and_duplicates`: Confirms unique issues vs submissions count distinction.
+  - `test_04_idempotent_in_app_notifications`: Confirms duplicate events do not create multiple notifications.
+  - `test_05_operational_sla_and_overdue_flags`: Confirms operational target computation and overdue flags.
+  - `test_06_citizen_feedback_submission`: Confirms feedback accepted only on resolved issues.
+- **Total Test Suite:** 27/27 backend tests passing in ~2.5s (`test_health`, `test_permissions`, `test_reporting`, `test_lifecycle`, `test_public_and_analytics`).
+- **Root Pipeline:** `npm run test` exits with code 0.
+
+- **Next Phase:** Phase 6 — First real AI model: road damage (Awaiting User Gate Approval).

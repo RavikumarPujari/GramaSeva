@@ -1,5 +1,6 @@
 import random
 import os
+import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Query
@@ -332,6 +333,18 @@ def submit_report(
     db.refresh(submission)
     db.refresh(issue)
 
+    # In-app notification for submission received
+    from app.notifications.service import notification_service
+    notification_service.send_notification(
+        db=db,
+        profile_id=current_user.id,
+        event_type="SUBMISSION_RECEIVED",
+        reference_number=submission.tracking_id,
+        issue_id=issue.id,
+        locale=submission.locale,
+        dedup_suffix="initial-submit",
+    )
+
     return build_report_response(submission, issue, db)
 
 @router.get("", response_model=List[ReportResponse])
@@ -451,7 +464,9 @@ def dispute_report(
     prev_status = issue.status
     issue.status = "REOPENED"
 
-    from app.models.issues import Dispute
+    from app.models.issues import Dispute, Feedback
+    from app.notifications.service import notification_service
+
     dispute = Dispute(
         issue_id=issue.id,
         citizen_profile_id=current_user.id,
@@ -470,9 +485,106 @@ def dispute_report(
     db.add(event)
     db.commit()
 
+    # In-app notification for dispute
+    notification_service.send_notification(
+        db=db,
+        profile_id=current_user.id,
+        event_type="ISSUE_REOPENED",
+        reference_number=issue.reference_number,
+        issue_id=issue.id,
+        locale=submission.locale,
+        dedup_suffix=f"dispute-{dispute.id[:8]}",
+    )
+
     return {
         "status": "reopened",
         "issue_id": issue.id,
         "new_status": issue.status,
         "dispute_id": dispute.id,
     }
+
+class FeedbackRequest(BaseModel):
+    rating: int  # 1 to 5
+    comment: Optional[str] = None
+    is_satisfied: bool = True
+
+@router.post("/{id}/feedback")
+def submit_report_feedback(
+    id: str,
+    req: FeedbackRequest,
+    current_user: Profile = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Citizen submits post-repair feedback and rating (1-5 stars) for a resolved complaint."""
+    if req.rating < 1 or req.rating > 5:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Rating must be between 1 and 5")
+
+    submission = db.query(Submission).filter((Submission.id == id) | (Submission.tracking_id == id)).first()
+    if not submission:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+
+    if submission.reporter_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the reporting citizen can provide feedback")
+
+    issue = db.query(Issue).filter(Issue.id == submission.issue_id).first()
+    if not issue:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
+
+    if issue.status != "RESOLVED":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Feedback can only be submitted for RESOLVED issues. Current status: {issue.status}",
+        )
+
+    from app.models.issues import Feedback
+    # Check if feedback already submitted
+    existing_fb = db.query(Feedback).filter(
+        Feedback.issue_id == issue.id,
+        Feedback.citizen_profile_id == current_user.id,
+    ).first()
+
+    if existing_fb:
+        existing_fb.rating = req.rating
+        existing_fb.comment = req.comment
+        existing_fb.is_satisfied = req.is_satisfied
+        db.commit()
+        return {"status": "updated", "feedback_id": existing_fb.id}
+
+    fb = Feedback(
+        id=str(uuid.uuid4()),
+        issue_id=issue.id,
+        citizen_profile_id=current_user.id,
+        rating=req.rating,
+        comment=req.comment,
+        is_satisfied=req.is_satisfied,
+    )
+    db.add(fb)
+    db.commit()
+    db.refresh(fb)
+
+    return {"status": "created", "feedback_id": fb.id}
+
+@router.get("/{id}/feedback")
+def get_report_feedback(
+    id: str,
+    current_user: Profile = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Retrieves citizen feedback for this issue."""
+    submission = db.query(Submission).filter((Submission.id == id) | (Submission.tracking_id == id)).first()
+    if not submission:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+
+    from app.models.issues import Feedback
+    fb = db.query(Feedback).filter(Feedback.issue_id == submission.issue_id).first()
+    if not fb:
+        return {"has_feedback": False}
+
+    return {
+        "has_feedback": True,
+        "rating": fb.rating,
+        "comment": fb.comment,
+        "is_satisfied": fb.is_satisfied,
+        "created_at": fb.created_at,
+    }
+

@@ -146,6 +146,35 @@ class Dispute(Base, TimestampMixin):
     response_notes = Column(Text, nullable=True)
     resolved_by_id = Column(String(36), ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True)
 
+class Feedback(Base, TimestampMixin):
+    """Citizen rating and feedback for verified resolved issues."""
+    __tablename__ = "feedback"
+
+    issue_id = Column(String(36), ForeignKey("issues.id", ondelete="CASCADE"), nullable=False, index=True)
+    citizen_profile_id = Column(String(36), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    rating = Column(Integer, nullable=False)  # 1 to 5
+    comment = Column(Text, nullable=True)
+    is_satisfied = Column(Boolean, default=True, nullable=False)
+
+    issue = relationship("Issue")
+    citizen = relationship("Profile")
+
+class Notification(Base, TimestampMixin):
+    """In-app notifications with idempotent deduplication keys."""
+    __tablename__ = "notifications"
+
+    profile_id = Column(String(36), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    issue_id = Column(String(36), ForeignKey("issues.id", ondelete="SET NULL"), nullable=True, index=True)
+    event_type = Column(String(50), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    locale = Column(String(10), default="en", nullable=False)
+    is_read = Column(Boolean, default=False, nullable=False, index=True)
+    dedup_key = Column(String(150), unique=True, index=True, nullable=False)
+
+    profile = relationship("Profile")
+    issue = relationship("Issue")
+
 class StatusEvent(Base, TimestampMixin):
     """Immutable audit trail for every issue state transition."""
     __tablename__ = "status_events"

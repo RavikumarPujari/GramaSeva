@@ -2,6 +2,7 @@ import math
 from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.users import Profile, RoleAssignment
@@ -195,6 +196,21 @@ def triage_issue(
 
     db.commit()
     db.refresh(issue)
+
+    # In-app notifications for reporters
+    if issue.status == "ASSIGNED":
+        from app.notifications.service import notification_service
+        subs = db.query(Submission).filter(Submission.issue_id == issue.id).all()
+        for s in subs:
+            notification_service.send_notification(
+                db=db,
+                profile_id=s.reporter_id,
+                event_type="ISSUE_ASSIGNED",
+                reference_number=issue.reference_number,
+                issue_id=issue.id,
+                locale=s.locale,
+                dedup_suffix=f"assigned-{issue.priority}",
+            )
 
     return {
         "status": "success",
@@ -473,9 +489,108 @@ def review_resolution(
     db.commit()
     db.refresh(issue)
 
+    if req.decision == "APPROVED":
+        from app.notifications.service import notification_service
+        subs = db.query(Submission).filter(Submission.issue_id == issue.id).all()
+        for s in subs:
+            notification_service.send_notification(
+                db=db,
+                profile_id=s.reporter_id,
+                event_type="RESOLUTION_APPROVED",
+                reference_number=issue.reference_number,
+                issue_id=issue.id,
+                locale=s.locale,
+                dedup_suffix=f"resolved-{issue.id[:8]}",
+            )
+
     return {
         "status": "success",
         "issue_id": issue.id,
         "new_status": issue.status,
         "resolved_at": issue.resolved_at,
     }
+
+class RedactMediaRequest(BaseModel):
+    reason: str
+    redaction_type: str = "sensitive_blur"  # face, license_plate, private_property
+
+@router.post("/media/{media_id}/approve-public")
+def approve_media_for_public(
+    media_id: str,
+    current_reviewer: Profile = Depends(require_roles("reviewer", "admin")),
+    db: Session = Depends(get_db),
+):
+    """Staff moderator approves a photo asset for public viewing after verifying no private info is leaked."""
+    media = db.query(MediaAsset).filter(MediaAsset.id == media_id).first()
+    if not media:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media asset not found")
+
+    media.is_public_approved = True
+    media.is_quarantined = False
+
+    audit = AuditLog(
+        actor_profile_id=current_reviewer.id,
+        action="APPROVE_PUBLIC_MEDIA",
+        target_type="MEDIA_ASSET",
+        target_id=media.id,
+        details_json=f'{{"approved_by": "{current_reviewer.full_name}", "evidence_role": "{media.evidence_role}"}}',
+    )
+    db.add(audit)
+    db.commit()
+
+    return {"status": "success", "media_id": media.id, "is_public_approved": True}
+
+@router.post("/media/{media_id}/quarantine")
+def quarantine_media(
+    media_id: str,
+    reason: str = Query("Contains private or non-compliant content"),
+    current_reviewer: Profile = Depends(require_roles("reviewer", "admin")),
+    db: Session = Depends(get_db),
+):
+    """Staff moderator quarantines media, removing it from all public and standard views."""
+    media = db.query(MediaAsset).filter(MediaAsset.id == media_id).first()
+    if not media:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media asset not found")
+
+    media.is_public_approved = False
+    media.is_quarantined = True
+
+    audit = AuditLog(
+        actor_profile_id=current_reviewer.id,
+        action="QUARANTINE_MEDIA",
+        target_type="MEDIA_ASSET",
+        target_id=media.id,
+        details_json=f'{{"reason": "{reason}", "actor": "{current_reviewer.full_name}"}}',
+    )
+    db.add(audit)
+    db.commit()
+
+    return {"status": "quarantined", "media_id": media.id, "is_quarantined": True}
+
+@router.post("/media/{media_id}/redact")
+def redact_media(
+    media_id: str,
+    req: RedactMediaRequest,
+    current_reviewer: Profile = Depends(require_roles("reviewer", "admin")),
+    db: Session = Depends(get_db),
+):
+    """Records media redaction (face, license plate, private property) and marks it safe for public display."""
+    media = db.query(MediaAsset).filter(MediaAsset.id == media_id).first()
+    if not media:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media asset not found")
+
+    media.is_public_approved = True
+    media.is_quarantined = False
+
+    audit = AuditLog(
+        actor_profile_id=current_reviewer.id,
+        action="REDACT_MEDIA",
+        target_type="MEDIA_ASSET",
+        target_id=media.id,
+        details_json=f'{{"redaction_type": "{req.redaction_type}", "reason": "{req.reason}", "actor": "{current_reviewer.full_name}"}}',
+    )
+    db.add(audit)
+    db.commit()
+
+    return {"status": "redacted_and_approved", "media_id": media.id, "is_public_approved": True}
+

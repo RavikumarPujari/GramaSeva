@@ -124,6 +124,19 @@ def accept_assignment(
     db.add(event)
     db.commit()
 
+    from app.notifications.service import notification_service
+    subs = db.query(Submission).filter(Submission.issue_id == issue.id).all()
+    for s in subs:
+        notification_service.send_notification(
+            db=db,
+            profile_id=s.reporter_id,
+            event_type="WORK_STARTED",
+            reference_number=issue.reference_number,
+            issue_id=issue.id,
+            locale=s.locale,
+            dedup_suffix=f"started-{asgn.id[:8]}",
+        )
+
     return {"status": "in_progress", "issue_id": issue.id}
 
 @router.post("/assignments/{assignment_id}/decline")
@@ -157,6 +170,19 @@ def decline_assignment(
     )
     db.add(event)
     db.commit()
+
+    from app.notifications.service import notification_service
+    subs = db.query(Submission).filter(Submission.issue_id == issue.id).all()
+    for s in subs:
+        notification_service.send_notification(
+            db=db,
+            profile_id=s.reporter_id,
+            event_type="REPAIR_REPORTED",
+            reference_number=issue.reference_number,
+            issue_id=issue.id,
+            locale=s.locale,
+            dedup_suffix=f"repair_rep-{issue.id[:8]}",
+        )
 
     return {"status": "declined", "issue_id": issue.id}
 
@@ -238,6 +264,19 @@ def request_resolution_review(
     )
     db.add(event)
     db.commit()
+
+    from app.notifications.service import notification_service
+    subs = db.query(Submission).filter(Submission.issue_id == issue.id).all()
+    for s in subs:
+        notification_service.send_notification(
+            db=db,
+            profile_id=s.reporter_id,
+            event_type="REPAIR_REPORTED",
+            reference_number=issue.reference_number,
+            issue_id=issue.id,
+            locale=s.locale,
+            dedup_suffix=f"repair_rep-{issue.id[:8]}",
+        )
 
     return {
         "status": "repair_reported",
