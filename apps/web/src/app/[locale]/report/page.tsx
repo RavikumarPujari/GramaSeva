@@ -1215,7 +1215,7 @@ export default function ReportPage() {
                               : "bg-slate-50 border-slate-200 hover:bg-white text-slate-700"
                           }`}
                         >
-                          <span className="block font-bold">? I'm not sure</span>
+                          <span className="block font-bold">? I&apos;m not sure</span>
                           <span className="text-[10px] text-slate-500 block">Reviewer will decide</span>
                         </button>
                       </div>
