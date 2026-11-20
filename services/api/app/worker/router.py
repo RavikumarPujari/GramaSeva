@@ -1,19 +1,33 @@
+import sys
+import os
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.models.users import Profile
+from app.models.users import Profile, RoleAssignment
 from app.models.issues import (
     Issue,
     Submission,
     MediaAsset,
     Assignment,
     StatusEvent,
+    WorkCompletion,
+    AIBeforeAfterAnalysis,
 )
 from app.storage.service import storage_service
 from app.auth.dependencies import get_current_user, require_roles
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
+try:
+    from workers.adapters.evidence_assistance.adapter import evidence_assistance_adapter
+except Exception:
+    try:
+        from services.workers.adapters.evidence_assistance.adapter import evidence_assistance_adapter
+    except Exception:
+        evidence_assistance_adapter = None
 
 router = APIRouter(prefix="/worker", tags=["Field Worker Operations"])
 
@@ -32,6 +46,15 @@ class WorkerTaskItem(BaseModel):
     assigned_at: datetime
     citizen_photo_ids: List[str] = []
     worker_after_photo_ids: List[str] = []
+    estimated_cost: Optional[float] = None
+    proposed_cost: Optional[float] = None
+    materials_cost: Optional[float] = None
+    labour_cost: Optional[float] = None
+    other_expenses_cost: Optional[float] = None
+    verified_cost: Optional[float] = None
+    cost_status: Optional[str] = None
+    pdo_remarks: Optional[str] = None
+    work_completed_at: Optional[datetime] = None
 
 class ProgressNoteRequest(BaseModel):
     notes: str
@@ -45,6 +68,19 @@ class EscalateTaskRequest(BaseModel):
 
 class RequestReviewRequest(BaseModel):
     work_summary: str
+
+class WorkCompletionSubmitRequest(BaseModel):
+    work_description: str
+    work_performed: Optional[str] = None
+    materials_used: Optional[str] = None
+    labour_details: Optional[str] = None
+    materials_cost: float = 0.0
+    labour_cost: float = 0.0
+    other_expenses_cost: float = 0.0
+    proposed_cost: Optional[float] = None
+    completion_date: Optional[str] = None
+    supporting_documents_paths: Optional[str] = None
+    after_media_ids: List[str] = []
 
 @router.get("/tasks", response_model=List[WorkerTaskItem])
 def get_worker_tasks(
@@ -91,6 +127,15 @@ def get_worker_tasks(
                 assigned_at=asgn.created_at,
                 citizen_photo_ids=[m[0] for m in citizen_photos],
                 worker_after_photo_ids=[m[0] for m in worker_photos],
+                estimated_cost=issue.estimated_cost,
+                proposed_cost=issue.proposed_cost,
+                materials_cost=issue.materials_cost,
+                labour_cost=issue.labour_cost,
+                other_expenses_cost=issue.other_expenses_cost,
+                verified_cost=issue.verified_cost,
+                cost_status=issue.cost_status,
+                pdo_remarks=issue.cost_verification_remarks or issue.resolution_review_notes,
+                work_completed_at=issue.work_completed_at,
             )
         )
 
@@ -228,6 +273,267 @@ async def upload_repair_evidence(
         "file_hash": media.file_hash,
     }
 
+@router.post("/issues/{issue_id}/completion")
+def submit_work_completion(
+    issue_id: str,
+    req: WorkCompletionSubmitRequest,
+    current_worker: Profile = Depends(require_roles("worker", "admin")),
+    db: Session = Depends(get_db),
+):
+    """
+    Submits completed work with after-photos, materials, labour, and proposed expenditure for PDO verification.
+    STRICT GOVERNANCE RULE: Field workers CANNOT mark issues resolved or approve their own costs.
+    Moves status to REPAIR_REPORTED ("Awaiting Verification") and runs advisory AI comparison.
+    """
+    issue = db.query(Issue).filter(Issue.id == issue_id).first()
+    if not issue:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
+
+    # Check that after photos exist
+    after_photos = (
+        db.query(MediaAsset)
+        .filter(MediaAsset.issue_id == issue.id, MediaAsset.evidence_role == "WORKER_AFTER")
+        .all()
+    )
+    if not after_photos and not req.after_media_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one photograph of the completed repair work is required.",
+        )
+
+    # Calculate proposed expenditure
+    total_proposed = (
+        req.proposed_cost
+        if req.proposed_cost is not None and req.proposed_cost > 0
+        else round(req.materials_cost + req.labour_cost + req.other_expenses_cost, 2)
+    )
+
+    # Determine submission number (handles rework / resubmissions without overwriting history)
+    prior_count = db.query(WorkCompletion).filter(WorkCompletion.issue_id == issue.id).count()
+    submission_num = prior_count + 1
+
+    comp_dt = None
+    if req.completion_date:
+        try:
+            comp_dt = datetime.fromisoformat(req.completion_date.replace("Z", "+00:00"))
+        except Exception:
+            comp_dt = datetime.now(timezone.utc)
+    else:
+        comp_dt = datetime.now(timezone.utc)
+
+    # Find assignment
+    asgn = db.query(Assignment).filter(Assignment.issue_id == issue.id, Assignment.worker_profile_id == current_worker.id).first()
+
+    completion = WorkCompletion(
+        issue_id=issue.id,
+        worker_profile_id=current_worker.id,
+        assignment_id=asgn.id if asgn else None,
+        submission_number=submission_num,
+        work_description=req.work_description,
+        work_performed=req.work_performed or req.work_description,
+        materials_used=req.materials_used,
+        labour_details=req.labour_details,
+        materials_cost=req.materials_cost,
+        labour_cost=req.labour_cost,
+        other_expenses_cost=req.other_expenses_cost,
+        proposed_cost=total_proposed,
+        completion_date=comp_dt,
+        supporting_documents_paths=req.supporting_documents_paths,
+        status="AWAITING_VERIFICATION",
+    )
+    db.add(completion)
+    db.flush()
+
+    # Link after-media assets to this work completion
+    if req.after_media_ids:
+        db.query(MediaAsset).filter(MediaAsset.id.in_(req.after_media_ids)).update(
+            {"work_completion_id": completion.id}, synchronize_session=False
+        )
+
+    # Run AI Before/After Analysis (Advisory assistance only)
+    before_asset = (
+        db.query(MediaAsset)
+        .filter(MediaAsset.issue_id == issue.id, MediaAsset.evidence_role == "CITIZEN_BEFORE")
+        .order_by(MediaAsset.created_at.asc())
+        .first()
+    )
+    latest_after_asset = (
+        db.query(MediaAsset)
+        .filter(MediaAsset.issue_id == issue.id, MediaAsset.evidence_role == "WORKER_AFTER")
+        .order_by(MediaAsset.created_at.desc())
+        .first()
+    )
+
+    ai_analysis_dict: Optional[Dict[str, Any]] = None
+    if before_asset and latest_after_asset:
+        if evidence_assistance_adapter:
+            try:
+                before_abs = storage_service.get_absolute_path(before_asset.storage_path)
+                after_abs = storage_service.get_absolute_path(latest_after_asset.storage_path)
+                ai_res = evidence_assistance_adapter.analyze_evidence_pair(
+                    before_image=before_abs,
+                    after_image=after_abs,
+                    before_hash=before_asset.file_hash,
+                    after_hash=latest_after_asset.file_hash,
+                )
+                ai_rec = AIBeforeAfterAnalysis(
+                    issue_id=issue.id,
+                    work_completion_id=completion.id,
+                    before_media_asset_id=before_asset.id,
+                    after_media_asset_id=latest_after_asset.id,
+                    model_id="evidence-assistance-dhash-v1",
+                    model_revision="rev-1.2.0",
+                    visible_change=ai_res.get("visible_change", False),
+                    possible_mismatch=ai_res.get("possible_mismatch", False),
+                    insufficient_evidence=ai_res.get("insufficient_evidence", False),
+                    visual_consistency_score=round(ai_res.get("visual_consistency_score", 0.0), 3),
+                    difference_summary=ai_res.get("difference_summary", "Completed visual inspection."),
+                    advisory_decision_suggestion=ai_res.get("advisory_decision_suggestion", "REVIEW_FOR_APPROVAL"),
+                    suggested_description=f"Repair observed with {int(ai_res.get('visual_consistency_score', 0.0) * 100)}% visual scene consistency.",
+                    status="COMPLETED",
+                )
+                db.add(ai_rec)
+                ai_analysis_dict = {
+                    "visible_change": ai_rec.visible_change,
+                    "visual_consistency_score": ai_rec.visual_consistency_score,
+                    "difference_summary": ai_rec.difference_summary,
+                    "advisory_decision_suggestion": ai_rec.advisory_decision_suggestion,
+                    "requires_human_review": True,
+                }
+            except Exception as e:
+                ai_rec = AIBeforeAfterAnalysis(
+                    issue_id=issue.id,
+                    work_completion_id=completion.id,
+                    before_media_asset_id=before_asset.id if before_asset else None,
+                    after_media_asset_id=latest_after_asset.id if latest_after_asset else None,
+                    model_id="evidence-assistance-dhash-v1",
+                    model_revision="rev-1.2.0",
+                    visible_change=False,
+                    difference_summary="AI visual analysis temporarily unavailable. Proceeding with manual PDO verification.",
+                    advisory_decision_suggestion="MANUAL_REVIEW_REQUIRED",
+                    status="FAILED",
+                    error_message=str(e),
+                )
+                db.add(ai_rec)
+                ai_analysis_dict = {
+                    "visible_change": False,
+                    "visual_consistency_score": 0.0,
+                    "difference_summary": "AI visual analysis unavailable. Human verification required.",
+                    "advisory_decision_suggestion": "MANUAL_REVIEW_REQUIRED",
+                    "requires_human_review": True,
+                }
+        else:
+            ai_rec = AIBeforeAfterAnalysis(
+                issue_id=issue.id,
+                work_completion_id=completion.id,
+                before_media_asset_id=before_asset.id,
+                after_media_asset_id=latest_after_asset.id,
+                model_id="evidence-assistance-dhash-v1",
+                model_revision="rev-1.2.0",
+                visible_change=False,
+                difference_summary="AI adapter offline. Proceeding with manual PDO verification.",
+                advisory_decision_suggestion="MANUAL_REVIEW_REQUIRED",
+                status="FAILED",
+            )
+            db.add(ai_rec)
+            ai_analysis_dict = {
+                "visible_change": False,
+                "visual_consistency_score": 0.0,
+                "difference_summary": "AI visual analysis unavailable. Human verification required.",
+                "advisory_decision_suggestion": "MANUAL_REVIEW_REQUIRED",
+                "requires_human_review": True,
+            }
+
+    # Update Issue status to REPAIR_REPORTED ("Awaiting Verification")
+    prev_status = issue.status
+    issue.status = "REPAIR_REPORTED"
+    issue.proposed_cost = total_proposed
+    issue.materials_cost = req.materials_cost
+    issue.labour_cost = req.labour_cost
+    issue.other_expenses_cost = req.other_expenses_cost
+    issue.cost_status = "PROPOSED"
+    issue.work_completed_at = comp_dt
+    issue.work_completion_description = req.work_description
+    issue.work_performed = req.work_performed or req.work_description
+    issue.materials_used = req.materials_used
+    issue.labour_details = req.labour_details
+    issue.resolution_review_notes = req.work_description
+
+    event = StatusEvent(
+        issue_id=issue.id,
+        actor_profile_id=current_worker.id,
+        previous_status=prev_status,
+        next_status="REPAIR_REPORTED",
+        reason=f"Worker {current_worker.full_name} submitted completion (Iteration #{submission_num}) with proposed cost ₹{total_proposed:,.2f}",
+    )
+    db.add(event)
+    db.commit()
+
+    # Notify Village PDO of new completion awaiting verification
+    from app.notifications.service import notification_service
+    # Reviewers in this locality
+    reviewers = (
+        db.query(Profile)
+        .join(RoleAssignment, RoleAssignment.profile_id == Profile.id)
+        .filter(RoleAssignment.role.in_(["reviewer", "admin"]), RoleAssignment.is_active == True)
+        .all()
+    )
+    for rev in reviewers:
+        notification_service.send_notification(
+            db=db,
+            profile_id=rev.id,
+            event_type="COMPLETION_SUBMITTED",
+            reference_number=issue.reference_number,
+            issue_id=issue.id,
+            locale=rev.preferred_locale or "en",
+            dedup_suffix=f"comp-{completion.id[:8]}",
+        )
+
+    return {
+        "status": "awaiting_verification",
+        "issue_id": issue.id,
+        "completion_id": completion.id,
+        "submission_number": submission_num,
+        "proposed_cost": total_proposed,
+        "cost_status": issue.cost_status,
+        "new_status": issue.status,
+        "ai_analysis": ai_analysis_dict,
+    }
+
+@router.get("/issues/{issue_id}/completion-history")
+def get_completion_history(
+    issue_id: str,
+    current_worker: Profile = Depends(require_roles("worker", "reviewer", "admin")),
+    db: Session = Depends(get_db),
+):
+    """Returns all completion attempts and PDO verification remarks for an issue."""
+    completions = (
+        db.query(WorkCompletion)
+        .filter(WorkCompletion.issue_id == issue_id)
+        .order_by(WorkCompletion.submission_number.desc())
+        .all()
+    )
+    results = []
+    for c in completions:
+        results.append({
+            "id": c.id,
+            "submission_number": c.submission_number,
+            "work_description": c.work_description,
+            "work_performed": c.work_performed,
+            "materials_used": c.materials_used,
+            "labour_details": c.labour_details,
+            "materials_cost": c.materials_cost,
+            "labour_cost": c.labour_cost,
+            "other_expenses_cost": c.other_expenses_cost,
+            "proposed_cost": c.proposed_cost,
+            "completion_date": c.completion_date.isoformat() if c.completion_date else None,
+            "status": c.status,
+            "pdo_remarks": c.pdo_remarks,
+            "verified_cost": c.verified_cost,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+        })
+    return results
+
 @router.post("/issues/{issue_id}/request-review")
 def request_resolution_review(
     issue_id: str,
@@ -336,3 +642,141 @@ def escalate_task(
         "is_escalated": True,
         "escalation_reason": issue.escalation_reason,
     }
+
+
+class WorkerStatusResponse(BaseModel):
+    worker_id: str
+    full_name: str
+    email: str
+    approval_status: str
+    is_approved: bool
+    village_name: Optional[str] = None
+    assigned_tasks_count: int
+    pending_tasks_count: int
+    in_progress_tasks_count: int
+
+@router.get("/status", response_model=WorkerStatusResponse)
+def get_worker_approval_status(
+    current_worker: Profile = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Checks whether this worker's account has been approved by the Village PDO.
+    """
+    asgn = (
+        db.query(RoleAssignment)
+        .filter(RoleAssignment.profile_id == current_worker.id, RoleAssignment.role == "worker")
+        .first()
+    )
+
+    approval_status = getattr(asgn, "approval_status", "APPROVED") if asgn else "APPROVED"
+    is_approved = approval_status == "APPROVED"
+
+    village_name = None
+    if asgn and asgn.jurisdiction_unit_id:
+        from app.models.localities import LocalityUnit
+        u = db.query(LocalityUnit).filter(LocalityUnit.id == asgn.jurisdiction_unit_id).first()
+        if u:
+            village_name = u.name_en
+
+    assigned_cnt = db.query(Assignment).filter(Assignment.worker_profile_id == current_worker.id).count()
+    pending_cnt = db.query(Assignment).filter(
+        Assignment.worker_profile_id == current_worker.id,
+        Assignment.status == "ASSIGNED",
+    ).count()
+    in_progress_cnt = db.query(Assignment).filter(
+        Assignment.worker_profile_id == current_worker.id,
+        Assignment.status.in_(["ACCEPTED", "IN_PROGRESS"]),
+    ).count()
+
+    return WorkerStatusResponse(
+        worker_id=current_worker.id,
+        full_name=current_worker.full_name,
+        email=current_worker.email,
+        approval_status=approval_status,
+        is_approved=is_approved,
+        village_name=village_name,
+        assigned_tasks_count=assigned_cnt,
+        pending_tasks_count=pending_cnt,
+        in_progress_tasks_count=in_progress_cnt,
+    )
+
+@router.post("/issues/{issue_id}/progress-notes")
+def add_worker_progress_note(
+    issue_id: str,
+    req: ProgressNoteRequest,
+    current_worker: Profile = Depends(require_roles("worker", "admin")),
+    db: Session = Depends(get_db),
+):
+    """Worker logs an interim work progress update."""
+    issue = db.query(Issue).filter(Issue.id == issue_id).first()
+    if not issue:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
+
+    event = StatusEvent(
+        issue_id=issue.id,
+        actor_profile_id=current_worker.id,
+        previous_status=issue.status,
+        next_status=issue.status,
+        reason=f"Worker progress note: {req.notes}",
+    )
+    db.add(event)
+    db.commit()
+    return {"status": "success", "note": req.notes}
+
+class WorkerMapPoint(BaseModel):
+    id: str
+    reference_number: str
+    category: str
+    status: str
+    priority: str
+    latitude: float
+    longitude: float
+    instructions: Optional[str] = None
+    ward_name: Optional[str] = None
+
+@router.get("/map-tasks", response_model=List[WorkerMapPoint])
+def get_worker_map_tasks(
+    current_worker: Profile = Depends(require_roles("worker", "admin")),
+    db: Session = Depends(get_db),
+):
+    """
+    Returns locations of only the complaints assigned to this worker.
+    Strictly prevents exposing unrelated citizen or worker locations.
+    """
+    assignments = (
+        db.query(Assignment, Issue)
+        .join(Issue, Assignment.issue_id == Issue.id)
+        .filter(
+            Assignment.worker_profile_id == current_worker.id,
+            (Issue.latitude.isnot(None)) | (Issue.public_latitude.isnot(None)),
+        )
+        .all()
+    )
+
+    results: List[WorkerMapPoint] = []
+    for asgn, issue in assignments:
+        sub = db.query(Submission).filter(Submission.issue_id == issue.id).first()
+        lat = issue.latitude or (sub.latitude if sub else None) or issue.public_latitude
+        lon = issue.longitude or (sub.longitude if sub else None) or issue.public_longitude
+        if not lat or not lon:
+            continue
+
+        ward_name = issue.locality_unit.name_en if issue.locality_unit else "Ward Unknown"
+
+        results.append(
+            WorkerMapPoint(
+                id=issue.id,
+                reference_number=issue.reference_number,
+                category=issue.category,
+                status=issue.status,
+                priority=issue.priority,
+                latitude=lat,
+                longitude=lon,
+                instructions=asgn.instructions,
+                ward_name=ward_name,
+            )
+        )
+
+    return results
+

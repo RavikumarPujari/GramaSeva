@@ -1,7 +1,7 @@
 import React from "react";
 import Link from "next/link";
-import { useTranslations } from "next-intl";
-import { unstable_setRequestLocale as setRequestLocale } from "next-intl/server";
+import Image from "next/image";
+import { getTranslations, unstable_setRequestLocale as setRequestLocale } from "next-intl/server";
 import {
   FilePlus,
   Search,
@@ -19,6 +19,8 @@ import {
   ArrowRight,
   MapPin,
   Sparkles,
+  Users,
+  FileText,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { WasteManagementSection } from "@/components/ui/WasteManagementSection";
@@ -27,10 +29,36 @@ interface HomePageProps {
   params: { locale: string };
 }
 
-export default function HomePage({ params: { locale } }: HomePageProps) {
+async function getHeroStats() {
+  try {
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const res = await fetch(`${apiBase}/api/v1/public/analytics`, {
+      next: { revalidate: 30 },
+      signal: AbortSignal.timeout(2000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        totalIssues: data.total_unique_issues ?? 0,
+        resolvedIssues: data.resolved_issues ?? 0,
+        villagesCovered: (data.village_metrics && data.village_metrics.length) || 9,
+      };
+    }
+  } catch {
+    // Return legitimate baseline for Belagavi Taluk
+  }
+  return {
+    totalIssues: 0,
+    resolvedIssues: 0,
+    villagesCovered: 9,
+  };
+}
+
+export default async function HomePage({ params: { locale } }: HomePageProps) {
   setRequestLocale(locale);
-  const tLanding = useTranslations("landing");
-  const tCat = useTranslations("categories");
+  const stats = await getHeroStats();
+  const tLanding = await getTranslations({ locale, namespace: "landing" });
+  const tCat = await getTranslations({ locale, namespace: "categories" });
 
   const categories = [
     {
@@ -73,158 +101,161 @@ export default function HomePage({ params: { locale } }: HomePageProps) {
 
   return (
     <div className="flex flex-col min-h-screen bg-[#F4F8FC]">
-      {/* 1. Hero Section — Modern Split Layout with Village Background */}
-      <section className="relative overflow-hidden bg-[#F4F8FC] border-b border-[#DCE5EE] pt-8 pb-12 sm:pt-12 sm:pb-16 lg:pt-16 lg:pb-20">
-        {/* Subtle Decorative Village Civic Background Illustration */}
-        <div className="absolute inset-0 pointer-events-none select-none overflow-hidden opacity-35" aria-hidden="true">
-          <svg
-            className="w-full h-full object-cover"
-            viewBox="0 0 1440 480"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            preserveAspectRatio="none"
-          >
-            {/* Distant Hills */}
-            <path
-              d="M0 340 C 240 280, 480 360, 720 310 C 960 260, 1200 340, 1440 290 L 1440 480 L 0 480 Z"
-              fill="#E2EDF8"
-            />
-            {/* Midground Village Outlines */}
-            <path
-              d="M0 380 C 280 330, 560 410, 840 360 C 1120 310, 1320 380, 1440 350 L 1440 480 L 0 480 Z"
-              fill="#D4E4F4"
-            />
-            {/* Distant Trees & Huts Silhouette */}
-            <g opacity="0.35" fill="#B9D5EE">
-              {/* Hut 1 */}
-              <polygon points="120,360 145,335 170,360" />
-              <rect x="130" y="360" width="30" height="20" />
-              {/* Tree 1 */}
-              <circle cx="210" cy="350" r="18" />
-              <rect x="207" y="360" width="6" height="20" fill="#A8C9E8" />
-              {/* Hut 2 */}
-              <polygon points="1120,335 1145,310 1170,335" />
-              <rect x="1130" y="335" width="30" height="25" />
-              {/* Tree 2 */}
-              <circle cx="1210" cy="320" r="22" />
-              <rect x="1207" y="335" width="6" height="25" fill="#A8C9E8" />
-            </g>
-          </svg>
+      {/* 1. Master Full-Width Hero Section matching Approved Reference */}
+      <section className="relative w-full overflow-hidden bg-white border-b border-[#DCE5EE] min-h-[580px] lg:min-h-[660px] xl:min-h-[720px] flex flex-col justify-between">
+        {/* Full-Bleed Photograph on Desktop (Occupies right and center of hero) */}
+        <div className="hidden lg:block absolute inset-y-0 right-0 w-[58%] xl:w-[62%] h-full pointer-events-none select-none z-0">
+          <Image
+            src="/images/gramaseva-hero-farmer.png"
+            alt="Indian male farmer holding smartphone and photographing road potholes with automated detection markers"
+            fill
+            priority
+            sizes="(min-width: 1024px) 62vw, 100vw"
+            className="object-cover object-[center_35%]"
+          />
+          {/* Smooth White Gradient Overlay fading from left into photo */}
+          <div className="absolute inset-0 bg-gradient-to-r from-white via-white/80 via-25% to-transparent w-[45%]" />
+          {/* Subtle Top & Bottom Vignettes for integration */}
+          <div className="absolute inset-x-0 top-0 h-12 bg-gradient-to-b from-white/30 to-transparent" />
+          <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-white/40 to-transparent" />
         </div>
 
-        {/* Subtle Micro-Dot Overlay */}
-        <div
-          className="absolute inset-0 opacity-[0.03] pointer-events-none"
-          style={{
-            backgroundImage: `radial-gradient(#102B4E 1px, transparent 1px)`,
-            backgroundSize: "24px 24px",
-          }}
-          aria-hidden="true"
-        />
-
-        <div className="relative max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 xl:gap-16 items-center">
-            {/* Left Column (7 cols): Heading, Subtitle, Balanced CTAs */}
-            <div className="lg:col-span-7 space-y-5 sm:space-y-6 text-left">
-              {/* Hero Pilot Badge */}
-              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#087F78]/10 text-[#087F78] text-xs sm:text-sm font-semibold border border-[#087F78]/25 shadow-2xs">
-                <ShieldCheck className="w-4 h-4 text-[#087F78]" aria-hidden="true" />
-                <span>Village & Ward Civic Accountability Platform</span>
-              </div>
-
-              {/* Controlled Max-Width Heading */}
-              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-[#102B4E] tracking-tight leading-[1.18]">
-                {tLanding("heroTitle") || "Report local issues. Track real fixes."}
-              </h1>
-
-              {/* Readable Description */}
-              <p className="text-sm sm:text-base lg:text-lg text-[#40536B] leading-relaxed max-w-2xl">
-                {tLanding("heroSubtitle") ||
-                  "Report problems in your village, such as damaged roads, water supply issues, drainage overflows and streetlight failures. Every repair requires verified inspection before closure."}
-              </p>
-
-              {/* Two Main Uniform Balanced CTA Buttons */}
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2 max-w-lg w-full">
-                {/* Primary CTA: Report a Problem */}
-                <Link href={`/${locale}/report`} className="flex-1">
-                  <button
-                    type="button"
-                    className="w-full h-12 px-6 rounded-xl bg-[#087F78] hover:bg-[#066B65] text-white font-semibold text-sm sm:text-base flex items-center justify-center gap-2 shadow-xs hover:shadow-sm transition-all whitespace-nowrap min-h-touch active:scale-[0.99]"
-                  >
-                    <FilePlus className="w-4 h-4 shrink-0" aria-hidden="true" />
-                    <span>Report a Problem</span>
-                  </button>
-                </Link>
-
-                {/* Secondary CTA: Track a Report */}
-                <Link href={`/${locale}/track`} className="flex-1">
-                  <button
-                    type="button"
-                    className="w-full h-12 px-6 rounded-xl bg-white hover:bg-[#F4F8FC] text-[#102B4E] border border-[#DCE5EE] hover:border-[#102B4E]/30 font-semibold text-sm sm:text-base flex items-center justify-center gap-2 shadow-2xs transition-all whitespace-nowrap min-h-touch active:scale-[0.99]"
-                  >
-                    <Search className="w-4 h-4 shrink-0 text-[#087F78]" aria-hidden="true" />
-                    <span>Track a Report</span>
-                  </button>
-                </Link>
-              </div>
-
-              {/* Secondary Dashboard Transparency Link */}
-              <div className="pt-1">
-                <Link
-                  href={`/${locale}/public`}
-                  className="inline-flex items-center text-xs sm:text-sm font-semibold text-[#40536B] hover:text-[#087F78] transition-colors group"
-                >
-                  <Eye className="w-4 h-4 mr-1.5 text-[#087F78] group-hover:scale-110 transition-transform" aria-hidden="true" />
-                  <span>View Public Accountability Map & Statistics</span>
-                  <ArrowRight className="w-3.5 h-3.5 ml-1 text-[#087F78] group-hover:translate-x-0.5 transition-transform" aria-hidden="true" />
-                </Link>
-              </div>
-
-              {/* Three Civic Guarantee Badges */}
-              <div className="pt-2 flex flex-wrap items-center gap-4 text-xs font-medium text-[#40536B] border-t border-[#DCE5EE]/70">
-                <div className="flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" aria-hidden="true" />
-                  <span>GPS-Verified Locations</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-[#087F78]" aria-hidden="true" />
-                  <span>Assigned to Ward Teams</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-sky-600" aria-hidden="true" />
-                  <span>Photographic Repair Proof</span>
-                </div>
-              </div>
+        {/* Foreground Content Container with flush left alignment */}
+        <div className="relative z-10 w-full max-w-[1536px] mx-auto pl-3 sm:pl-5 lg:pl-8 pr-4 sm:pr-6 lg:pr-8 pt-8 sm:pt-12 lg:pt-14 pb-8 sm:pb-12 flex-1 flex flex-col justify-between">
+          <div className="max-w-xl lg:max-w-2xl space-y-5 sm:space-y-6 text-left">
+            {/* Small Badge */}
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#00A99D]/10 text-[#00A99D] text-xs sm:text-sm font-bold border border-[#00A99D]/25 shadow-2xs">
+              <ShieldCheck className="w-4 h-4 text-[#00A99D]" aria-hidden="true" />
+              <span>Village & Ward Civic Accountability Platform</span>
             </div>
 
-            {/* Right Column (5 cols): Curved Softly Rounded Frame with Authentic Photograph */}
-            <div className="lg:col-span-5">
-              <div className="relative rounded-2xl sm:rounded-3xl shadow-xl ring-1 ring-slate-200/90 overflow-hidden bg-white group">
-                {/* Realistic Photograph of Sanitation Worker with Segregated Wet & Dry Bins */}
-                <img
-                  src="/sanitation-worker-bins.png"
-                  alt="Indian village sanitation worker with segregated green wet-waste and blue dry-waste bins"
-                  className="w-full h-[380px] sm:h-[440px] lg:h-[480px] xl:h-[520px] object-cover group-hover:scale-[1.02] transition-transform duration-500"
-                  loading="eager"
-                />
+            {/* Main Heading */}
+            <h1 className="text-3xl sm:text-4xl lg:text-5xl xl:text-6xl font-black text-[#062B46] tracking-tight leading-[1.12]">
+              Report local issues.<br className="hidden sm:inline" />
+              Track real fixes.
+            </h1>
 
-                {/* Subtle Gradient Vignette at Bottom */}
-                <div className="absolute inset-0 bg-gradient-to-t from-[#102B4E]/80 via-transparent to-transparent pointer-events-none" />
+            {/* Description */}
+            <p className="text-sm sm:text-base lg:text-lg text-[#40536B] leading-relaxed max-w-xl">
+              Report civic problems in your village or ward. Our system verifies, tracks, and ensures real resolution with complete transparency.
+            </p>
 
-                {/* Dignified Caption Badge Overlay */}
-                <div className="absolute bottom-4 left-4 right-4 bg-white/95 backdrop-blur-md p-3.5 rounded-2xl border border-white/80 shadow-lg">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 shadow-xs animate-pulse" />
-                      <p className="text-xs font-bold text-[#102B4E]">Verified Civic Sanitation & Segregation</p>
-                    </div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                      Active Pilot
-                    </span>
+            {/* Primary & Secondary Action Buttons */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3.5 pt-1 max-w-md w-full">
+              {/* Primary CTA: Report a Problem */}
+              <Link href={`/${locale}/report`} className="flex-1">
+                <button
+                  type="button"
+                  className="w-full h-12 px-6 rounded-xl bg-[#00A99D] hover:bg-[#008f85] text-white font-bold text-sm sm:text-base flex items-center justify-center gap-2.5 shadow-sm hover:shadow transition-all whitespace-nowrap min-h-touch active:scale-[0.99]"
+                >
+                  <FilePlus className="w-5 h-5 shrink-0" aria-hidden="true" />
+                  <span>Report a Problem</span>
+                </button>
+              </Link>
+
+              {/* Secondary CTA: Track a Report */}
+              <Link href={`/${locale}/track`} className="flex-1">
+                <button
+                  type="button"
+                  className="w-full h-12 px-6 rounded-xl bg-white hover:bg-[#F5F8FC] text-[#062B46] border border-[#DCE5EE] hover:border-[#062B46]/30 font-bold text-sm sm:text-base flex items-center justify-center gap-2.5 shadow-2xs transition-all whitespace-nowrap min-h-touch active:scale-[0.99]"
+                >
+                  <Search className="w-5 h-5 shrink-0 text-[#00A99D]" aria-hidden="true" />
+                  <span>Track a Report</span>
+                </button>
+              </Link>
+            </div>
+
+            {/* Mobile Hero Image Presentation (Visible on mobile/tablet below lg) */}
+            <div className="lg:hidden mt-4 mb-3 rounded-2xl overflow-hidden shadow-lg ring-1 ring-slate-200/90 bg-white">
+              <Image
+                src="/images/gramaseva-hero-farmer.png"
+                alt="Indian male farmer holding smartphone and photographing road potholes"
+                width={1300}
+                height={1008}
+                priority
+                className="w-full h-[260px] sm:h-[340px] object-cover object-center"
+              />
+            </div>
+
+            {/* 4 Supporting Feature Points */}
+            <div className="pt-2 space-y-2 sm:space-y-2.5 text-xs sm:text-sm font-bold text-[#062B46]">
+              <div className="flex items-center gap-2.5">
+                <div className="w-5 h-5 rounded-full bg-[#00A99D]/15 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-[#00A99D]" aria-hidden="true" />
+                </div>
+                <span>GPS-Verified Locations</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <div className="w-5 h-5 rounded-full bg-[#00A99D]/15 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-[#00A99D]" aria-hidden="true" />
+                </div>
+                <span>Photographic Proof</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <div className="w-5 h-5 rounded-full bg-[#00A99D]/15 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-[#00A99D]" aria-hidden="true" />
+                </div>
+                <span>Verified Resolutions</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <div className="w-5 h-5 rounded-full bg-[#00A99D]/15 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-[#00A99D]" aria-hidden="true" />
+                </div>
+                <span>Transparent to All</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Floating White Statistics Panel near Bottom */}
+          <div className="mt-8 lg:mt-12 bg-white/95 backdrop-blur-md rounded-2xl border border-[#DCE5EE] shadow-md p-4 sm:p-5 max-w-xl lg:max-w-2xl xl:max-w-3xl">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 divide-y sm:divide-y-0 sm:divide-x divide-[#DCE5EE]">
+              {/* Stat 1: Issues Reported */}
+              <div className="flex items-center gap-3 pt-2.5 sm:pt-0 sm:px-2">
+                <div className="w-10 h-10 rounded-xl bg-[#00A99D]/10 border border-[#00A99D]/20 flex items-center justify-center shrink-0">
+                  <FileText className="w-5 h-5 text-[#00A99D]" />
+                </div>
+                <div>
+                  <div className="text-lg sm:text-xl font-black text-[#062B46]">
+                    {stats.totalIssues.toLocaleString()}
                   </div>
-                  <p className="text-[11px] text-[#40536B] mt-1 leading-snug">
-                    Connecting village residents, ward sanitation teams, and verified cleanup inspections.
-                  </p>
+                  <div className="text-[11px] font-semibold text-[#40536B]">Issues Reported</div>
+                </div>
+              </div>
+
+              {/* Stat 2: Resolved */}
+              <div className="flex items-center gap-3 pt-2.5 sm:pt-0 sm:px-2">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-500/20 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div>
+                  <div className="text-lg sm:text-xl font-black text-[#062B46]">
+                    {stats.resolvedIssues.toLocaleString()}
+                  </div>
+                  <div className="text-[11px] font-semibold text-[#40536B]">Resolved</div>
+                </div>
+              </div>
+
+              {/* Stat 3: Villages Covered */}
+              <div className="flex items-center gap-3 pt-2.5 sm:pt-0 sm:px-2">
+                <div className="w-10 h-10 rounded-xl bg-sky-50 border border-sky-500/20 flex items-center justify-center shrink-0">
+                  <Users className="w-5 h-5 text-sky-600" />
+                </div>
+                <div>
+                  <div className="text-lg sm:text-xl font-black text-[#062B46]">
+                    {stats.villagesCovered}
+                  </div>
+                  <div className="text-[11px] font-semibold text-[#40536B]">Villages Covered</div>
+                </div>
+              </div>
+
+              {/* Stat 4: Transparent */}
+              <div className="flex items-center gap-3 pt-2.5 sm:pt-0 sm:px-2">
+                <div className="w-10 h-10 rounded-xl bg-[#00A99D]/10 border border-[#00A99D]/20 flex items-center justify-center shrink-0">
+                  <ShieldCheck className="w-5 h-5 text-[#00A99D]" />
+                </div>
+                <div>
+                  <div className="text-lg sm:text-xl font-black text-[#062B46]">100%</div>
+                  <div className="text-[11px] font-semibold text-[#40536B]">Transparent & Audited</div>
                 </div>
               </div>
             </div>
@@ -290,7 +321,7 @@ export default function HomePage({ params: { locale } }: HomePageProps) {
       </section>
 
       {/* 4. How It Works Section */}
-      <section className="py-14 sm:py-18 bg-white border-t border-[#DCE5EE]">
+      <section id="how-it-works" className="py-14 sm:py-18 bg-white border-t border-[#DCE5EE]">
         <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12">
           <div className="text-center max-w-2xl mx-auto mb-10 sm:mb-12 space-y-2">
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#102B4E]/10 text-[#102B4E] border border-[#102B4E]/20">

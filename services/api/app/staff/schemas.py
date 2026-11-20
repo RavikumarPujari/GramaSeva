@@ -18,8 +18,10 @@ class DuplicateDecisionRequest(BaseModel):
     reason: str
 
 class ResolutionReviewRequest(BaseModel):
-    decision: str  # APPROVE, REQUEST_EVIDENCE, REOPEN
+    decision: str  # APPROVE, REQUEST_EVIDENCE, REOPEN, CORRECTION_REQUIRED, REJECT
     explanation: str
+    verified_cost: Optional[float] = None
+    cost_remarks: Optional[str] = None
 
 class StaffInboxItem(BaseModel):
     submission_id: str
@@ -48,6 +50,16 @@ class ResolutionQueueItem(BaseModel):
     repair_notes: Optional[str] = None
     before_photo_ids: List[str] = []
     after_photo_ids: List[str] = []
+    estimated_cost: Optional[float] = None
+    proposed_cost: Optional[float] = None
+    materials_cost: Optional[float] = None
+    labour_cost: Optional[float] = None
+    other_expenses_cost: Optional[float] = None
+    verified_cost: Optional[float] = None
+    cost_status: Optional[str] = None
+    work_performed: Optional[str] = None
+    materials_used: Optional[str] = None
+    labour_details: Optional[str] = None
 
 class DuplicateCandidateItem(BaseModel):
     issue_id: str

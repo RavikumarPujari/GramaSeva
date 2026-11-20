@@ -1,5 +1,12 @@
 from app.models.base import TimestampMixin
-from app.models.users import Profile, RoleAssignment
+from app.models.users import (
+    Profile,
+    RoleAssignment,
+    CitizenWardRegistration,
+    CitizenDocument,
+    WardMember,
+    Announcement,
+)
 from app.models.localities import Organization, LocalityUnit, Department, DepartmentJurisdiction
 from app.models.issues import (
     Issue,
@@ -15,12 +22,18 @@ from app.models.issues import (
     AuditLog,
     Job,
     ModelRun,
+    WorkCompletion,
+    AIBeforeAfterAnalysis,
 )
 
 __all__ = [
     "TimestampMixin",
     "Profile",
     "RoleAssignment",
+    "CitizenWardRegistration",
+    "CitizenDocument",
+    "WardMember",
+    "Announcement",
     "Organization",
     "LocalityUnit",
     "Department",
@@ -38,4 +51,6 @@ __all__ = [
     "AuditLog",
     "Job",
     "ModelRun",
+    "WorkCompletion",
+    "AIBeforeAfterAnalysis",
 ]

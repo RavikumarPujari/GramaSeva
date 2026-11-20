@@ -2,6 +2,8 @@
   "navigation": {
     "brand": "GramaSeva",
     "home": "Home",
+    "about": "About",
+    "howItWorks": "How It Works",
     "report": "Report a Problem",
     "myReports": "Track a Report",
     "publicDashboard": "Public Dashboard",

@@ -2,6 +2,8 @@
   "navigation": {
     "brand": "ग्रामसेवा",
     "home": "होम",
+    "about": "हमारे बारे में",
+    "howItWorks": "यह कैसे काम करता है",
     "report": "शिकायत दर्ज करें",
     "myReports": "शिकायत ट्रैक करें",
     "publicDashboard": "सार्वजनिक डैशबोर्ड",

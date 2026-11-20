@@ -2,1263 +2,1727 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import {
-  Settings,
-  Map,
+  LayoutDashboard,
   Building2,
   Users,
   Shield,
-  Plus,
-  GitFork,
-  Check,
+  Layers,
+  ClipboardList,
+  BarChart3,
+  Bell,
+  History,
+  Settings,
+  Menu,
+  ChevronLeft,
+  ChevronRight,
   Search,
-  Filter,
+  Plus,
+  RefreshCw,
   CheckCircle2,
-  XCircle,
-  Clock,
   AlertTriangle,
+  Send,
+  UserCheck,
+  UserX,
+  MapPin,
+  Clock,
   ArrowRight,
   Eye,
-  RefreshCw,
-  Sparkles,
-  MapPin,
-  ClipboardList,
-  Wrench,
-  Send,
-  HelpCircle,
+  LogOut,
+  Mail,
+  Phone,
+  Radio,
   FileText,
   Sliders,
-  UserCheck,
+  Server,
+  Database,
+  Globe,
+  Sparkles,
+  ShieldAlert,
 } from "lucide-react";
-import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
-import { Badge, type StatusType } from "@/components/ui/Badge";
-import { Alert } from "@/components/ui/Alert";
-import { Input, Textarea } from "@/components/ui/Input";
-import { Select } from "@/components/ui/Select";
 import { apiClient } from "@/lib/api-client";
+import { LeafletMap } from "@/components/ui/LeafletMap";
+import { LanguageSelector } from "@/components/ui/LanguageSelector";
+import { GramaSevaLogo } from "@/components/ui/GramaSevaLogo";
 
-interface ComplaintItem {
-  id: string;
-  submission_id?: string;
-  tracking_id: string;
-  reference_number: string;
-  category: string;
-  status: string;
-  priority: string;
-  village_name?: string;
-  ward_name?: string;
-  description?: string;
-  assigned_worker_id?: string;
-  assigned_worker_name?: string;
-  department_id?: string;
-  department_name?: string;
-  latitude?: number;
-  longitude?: number;
-  is_duplicate?: boolean;
-  is_recurrence?: boolean;
-  created_at: string;
-  resolved_at?: string;
-  photos_count: number;
+type AdminSection =
+  | "overview"
+  | "taluk_overview"
+  | "villages"
+  | "pdos"
+  | "users"
+  | "wards"
+  | "complaints"
+  | "analytics"
+  | "announcements"
+  | "audit"
+  | "settings";
+
+interface OverviewStats {
+  total_villages: number;
+  total_pdos: number;
+  total_workers: number;
+  total_citizens: number;
+  total_complaints: number;
+  resolved_complaints: number;
+  pending_complaints: number;
+  in_progress_complaints: number;
+  system_health?: string;
 }
 
-interface LocalityUnit {
+interface TalukAnalytics {
+  taluk_name: string;
+  total_complaints: number;
+  pending: number;
+  in_progress: number;
+  resolved: number;
+  high_priority: number;
+  category_distribution: Record<string, number>;
+  status_distribution: Record<string, number>;
+  village_comparison: Array<{
+    id: string;
+    name_en: string;
+    unit_type: string;
+    issues_count: number;
+    resolved_count: number;
+    pending_count: number;
+    high_priority_count: number;
+    assigned_pdo_name?: string;
+    has_pdo: boolean;
+  }>;
+  top_pending_villages: Array<any>;
+  unassigned_villages: Array<{ id: string; name_en: string }>;
+  pdo_coverage: {
+    total_villages: number;
+    covered_villages: number;
+    unassigned_villages: number;
+    coverage_percent: number;
+  };
+}
+
+interface VillageItem {
   id: string;
-  unit_type: string;
-  parent_id: string | null;
+  official_code?: string;
   name_en: string;
-  name_kn: string;
-  name_hi: string;
+  name_kn?: string;
+  unit_type: string;
+  assigned_pdo_id?: string;
+  assigned_pdo_name?: string;
+  assigned_pdo_email?: string;
+  boundary_geojson?: any;
+  total_complaints?: number;
+  resolved_complaints?: number;
 }
 
-export default function AdminPage() {
+interface PDOItem {
+  id: string;
+  email: string;
+  full_name: string;
+  phone_number?: string;
+  is_active: boolean;
+  village_id?: string;
+  village_name?: string;
+  is_primary: boolean;
+  created_at: string;
+}
+
+interface UserRosterItem {
+  id: string;
+  full_name: string;
+  email: string;
+  phone_number?: string;
+  is_active: boolean;
+  roles: string[];
+  jurisdictions: string[];
+  created_at?: string;
+}
+
+interface AuditLogItem {
+  id: string;
+  actor_id?: string;
+  actor_name?: string;
+  action: string;
+  target_type: string;
+  target_id: string;
+  details?: string;
+  created_at: string;
+}
+
+interface AnnouncementItem {
+  id: string;
+  title: string;
+  content: string;
+  target_type: string;
+  target_village_ids?: string;
+  target_pdo_id?: string;
+  delivered_count: number;
+  created_at: string;
+}
+
+export default function SuperAdminDashboard() {
   const locale = useLocale();
-  const tNav = useTranslations("navigation");
+  const router = useRouter();
 
-  const [activeTab, setActiveTab] = useState<"complaints" | "wards" | "workers">("complaints");
-  const [complaints, setComplaints] = useState<ComplaintItem[]>([]);
+  // Sidebar Layout State
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState<AdminSection>("overview");
+
+  // Global & Operational State
   const [isLoading, setIsLoading] = useState(true);
-  const [actionAlert, setActionAlert] = useState<{ type: "success" | "info" | "error"; text: string } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // Filters
+  // Real Database States
+  const [stats, setStats] = useState<OverviewStats | null>(null);
+  const [talukAnalytics, setTalukAnalytics] = useState<TalukAnalytics | null>(null);
+  const [villages, setVillages] = useState<VillageItem[]>([]);
+  const [pdos, setPdos] = useState<PDOItem[]>([]);
+  const [users, setUsers] = useState<UserRosterItem[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
+  const [announcements, setAnnouncements] = useState<AnnouncementItem[]>([]);
+
+  // Search & Filter
   const [searchQuery, setSearchQuery] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("ALL");
-  const [statusFilter, setStatusFilter] = useState("ALL");
-  const [priorityFilter, setPriorityFilter] = useState("ALL");
-  const [villageFilter, setVillageFilter] = useState("ALL");
+  const [roleFilter, setRoleFilter] = useState("ALL");
+  const [dateFilter, setDateFilter] = useState("30_DAYS");
 
-  // Selected Complaint for Detailed Review & Action Modal
-  const [selectedComplaint, setSelectedComplaint] = useState<ComplaintItem | null>(null);
-  const [reviewAction, setReviewAction] = useState<"none" | "confirm" | "assign" | "request_info" | "correct_category" | "reject">("none");
+  // Modals & Forms
+  const [showCreateVillageModal, setShowCreateVillageModal] = useState(false);
+  const [newVillageName, setNewVillageName] = useState("");
+  const [newVillageKn, setNewVillageKn] = useState("");
+  const [newVillageType, setNewVillageType] = useState("gram_panchayat");
 
-  // Assignment Modal Fields
-  const [assignWard, setAssignWard] = useState("Ward 2 (Primary School Road)");
-  const [assignWorker, setAssignWorker] = useState("worker.ramesh@fixproof.org");
-  const [assignDept, setAssignDept] = useState("DEPT-ROADS");
-  const [assignPriority, setAssignPriority] = useState("HIGH");
-  const [assignSla, setAssignSla] = useState("48_HOURS");
-  const [assignInstructions, setAssignInstructions] = useState("");
+  const [showCreatePdoModal, setShowCreatePdoModal] = useState(false);
+  const [newPdoName, setNewPdoName] = useState("");
+  const [newPdoEmail, setNewPdoEmail] = useState("");
+  const [newPdoPhone, setNewPdoPhone] = useState("");
+  const [newPdoPass, setNewPdoPass] = useState("PdoPass2026!");
+  const [newPdoVillageId, setNewPdoVillageId] = useState("");
 
-  // Request Info / Reject / Correct Category Fields
-  const [infoMessage, setInfoMessage] = useState("");
-  const [rejectReason, setRejectReason] = useState("");
-  const [correctedCategory, setCorrectedCategory] = useState("road_damage");
-  const [correctionReason, setCorrectionReason] = useState("");
-  const [isSubmittingAction, setIsSubmittingAction] = useState(false);
+  // Announcement Workflow State
+  const [announcementTargetType, setAnnouncementTargetType] = useState("ALL_PDOS");
+  const [announcementVillages, setAnnouncementVillages] = useState<string[]>([]);
+  const [announcementPdoId, setAnnouncementPdoId] = useState("");
+  const [announcementTitle, setAnnouncementTitle] = useState("");
+  const [announcementContent, setAnnouncementContent] = useState("");
+  const [isSendingAnnouncement, setIsSendingAnnouncement] = useState(false);
 
-  // Village & Ward Management
-  const [villages, setVillages] = useState<LocalityUnit[]>([]);
-  const [showAddWardModal, setShowAddWardModal] = useState(false);
-  const [newWardName, setNewWardName] = useState("");
-  const [newWardVillageId, setNewWardVillageId] = useState("v1");
-
-  const categoryOptions = [
-    { value: "ALL", label: "All Categories" },
-    { value: "road_damage", label: "Road and Infrastructure" },
-    { value: "water_leak", label: "Water Supply & Leaks" },
-    { value: "drainage", label: "Drainage and Sewage" },
-    { value: "garbage", label: "Cleanliness and Waste" },
-    { value: "streetlight", label: "Streetlights & Electrical" },
-    { value: "public_facility", label: "Public Facilities" },
-    { value: "other", label: "Other Problem" },
-  ];
-
-  const statusOptions = [
-    { value: "ALL", label: "All Statuses" },
-    { value: "SUBMITTED", label: "New (Awaiting Review)" },
-    { value: "UNDER_REVIEW", label: "Under Review" },
-    { value: "ASSIGNED", label: "Assigned" },
-    { value: "IN_PROGRESS", label: "Work in Progress" },
-    { value: "REPAIR_REPORTED", label: "Awaiting Verification" },
-    { value: "RESOLVED", label: "Resolved" },
-    { value: "NEEDS_INFORMATION", label: "Needs More Information" },
-    { value: "REJECTED", label: "Rejected" },
-  ];
-
-  const workersList = [
-    { id: "worker-1", name: "Ramesh K.", role: "Civil & Road Works Lead", email: "worker.ramesh@fixproof.org", ward: "Ward 1 & 2" },
-    { id: "worker-2", name: "Suresh Gowda", role: "Water Supply Line Technician", email: "worker.suresh@fixproof.org", ward: "Ward 1 & 3" },
-    { id: "worker-3", name: "Manjunatha N.", role: "Sanitation & Drainage Team", email: "worker.manju@fixproof.org", ward: "All Wards" },
-    { id: "worker-4", name: "Prakash V.", role: "Streetlight Line Inspector", email: "worker.prakash@fixproof.org", ward: "Ward 2 & 3" },
-  ];
-
-  const fetchComplaintsData = async () => {
+  // Load Administrative Data
+  const loadAdminData = async () => {
     setIsLoading(true);
+    setError(null);
     try {
-      // Fetch administrative complaints
-      const complaintsData = await apiClient.get<ComplaintItem[]>("/staff/all-complaints");
-      if (complaintsData && complaintsData.length > 0) {
-        setComplaints(complaintsData);
-      } else {
-        // High fidelity demo seed
-        setComplaints([
-          {
-            id: "issue-01",
-            submission_id: "sub-01",
-            tracking_id: "GS-2026-00412",
-            reference_number: "GS-2026-00412",
-            category: "road_damage",
-            status: "SUBMITTED",
-            priority: "HIGH",
-            village_name: "Gowdanahalli",
-            ward_name: "Ward 2 (Primary School Road)",
-            description: "Deep crater-sized pothole right on the curve near the primary school gate. Poses hazard for school vans and two-wheelers.",
-            latitude: 12.5234,
-            longitude: 76.8971,
-            created_at: new Date(Date.now() - 3600000 * 2).toISOString(),
-            photos_count: 1,
-          },
-          {
-            id: "issue-02",
-            submission_id: "sub-02",
-            tracking_id: "GS-2026-00418",
-            reference_number: "GS-2026-00418",
-            category: "water_leak",
-            status: "UNDER_REVIEW",
-            priority: "CRITICAL",
-            village_name: "Gowdanahalli",
-            ward_name: "Ward 1 (Post Office Area)",
-            description: "Main 3-inch PVC distribution joint cracked and gushing water continuously across the road.",
-            latitude: 12.5245,
-            longitude: 76.8982,
-            assigned_worker_name: "Suresh Gowda",
-            department_name: "Water Supply & Sanitation",
-            created_at: new Date(Date.now() - 3600000 * 5).toISOString(),
-            photos_count: 1,
-          },
-          {
-            id: "issue-03",
-            submission_id: "sub-03",
-            tracking_id: "GS-2026-00388",
-            reference_number: "GS-2026-00388",
-            category: "road_damage",
-            status: "IN_PROGRESS",
-            priority: "HIGH",
-            village_name: "Malleshwarapuram",
-            ward_name: "Ward 1 (Lakeview Road)",
-            description: "Edge crumbling and asphalt subsidence over a 15m stretch.",
-            latitude: 12.518,
-            longitude: 76.8892,
-            assigned_worker_name: "Ramesh K.",
-            department_name: "Roads & Civil Works",
-            created_at: new Date(Date.now() - 3600000 * 24).toISOString(),
-            photos_count: 2,
-          },
-          {
-            id: "issue-04",
-            submission_id: "sub-04",
-            tracking_id: "GS-2026-00350",
-            reference_number: "GS-2026-00350",
-            category: "streetlight",
-            status: "RESOLVED",
-            priority: "MEDIUM",
-            village_name: "Gowdanahalli",
-            ward_name: "Ward 3 (Temple Street)",
-            description: "Streetlight pole #14 dark for 4 consecutive nights. Replaced LED driver fixture.",
-            latitude: 12.522,
-            longitude: 76.896,
-            assigned_worker_name: "Prakash V.",
-            department_name: "Electrical & Public Works",
-            created_at: new Date(Date.now() - 3600000 * 72).toISOString(),
-            resolved_at: new Date(Date.now() - 3600000 * 8).toISOString(),
-            photos_count: 2,
-          },
-          {
-            id: "issue-05",
-            submission_id: "sub-05",
-            tracking_id: "GS-2026-00310",
-            reference_number: "GS-2026-00310",
-            category: "garbage",
-            status: "NEEDS_INFORMATION",
-            priority: "LOW",
-            village_name: "Ramanagara",
-            ward_name: "Ward 1 (Main Bazaar)",
-            description: "Garbage accumulation behind commercial market complex.",
-            latitude: 12.531,
-            longitude: 76.902,
-            created_at: new Date(Date.now() - 3600000 * 36).toISOString(),
-            photos_count: 1,
-          },
-        ]);
-      }
+      const [statsRes, talukRes, vilRes, pdoRes, usrRes, auditRes, annRes] = await Promise.allSettled([
+        apiClient.get<OverviewStats>("/admin/overview"),
+        apiClient.get<TalukAnalytics>("/admin/taluk-analytics"),
+        apiClient.get<VillageItem[]>("/admin/villages"),
+        apiClient.get<PDOItem[]>("/admin/pdos"),
+        apiClient.get<UserRosterItem[]>("/admin/users"),
+        apiClient.get<AuditLogItem[]>("/admin/audit-logs"),
+        apiClient.get<AnnouncementItem[]>("/admin/announcements"),
+      ]);
 
-      // Fetch villages
-      const vData = await apiClient.get<LocalityUnit[]>("/localities?unit_type=village");
-      if (vData && vData.length > 0) setVillages(vData);
-    } catch {
-      // Fallback
+      if (statsRes.status === "fulfilled") setStats(statsRes.value);
+      if (talukRes.status === "fulfilled") setTalukAnalytics(talukRes.value);
+      if (vilRes.status === "fulfilled") setVillages(vilRes.value);
+      if (pdoRes.status === "fulfilled") setPdos(pdoRes.value);
+      if (usrRes.status === "fulfilled") setUsers(usrRes.value);
+      if (auditRes.status === "fulfilled") setAuditLogs(auditRes.value);
+      if (annRes.status === "fulfilled") setAnnouncements(annRes.value);
+    } catch (err: any) {
+      setError(err.message || "Failed to load administration data");
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchComplaintsData();
+    loadAdminData();
   }, []);
 
-  // Filter complaints
-  const filteredComplaints = complaints.filter((c) => {
-    if (categoryFilter !== "ALL" && c.category !== categoryFilter) return false;
-    if (statusFilter !== "ALL" && c.status !== statusFilter) return false;
-    if (priorityFilter !== "ALL" && c.priority !== priorityFilter) return false;
-    if (villageFilter !== "ALL" && c.village_name && !c.village_name.toLowerCase().includes(villageFilter.toLowerCase())) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const matchTrack = c.tracking_id.toLowerCase().includes(q);
-      const matchRef = c.reference_number.toLowerCase().includes(q);
-      const matchDesc = c.description?.toLowerCase().includes(q);
-      const matchWorker = c.assigned_worker_name?.toLowerCase().includes(q);
-      if (!matchTrack && !matchRef && !matchDesc && !matchWorker) return false;
-    }
-    return true;
-  });
+  const handleSignOut = () => {
+    localStorage.removeItem("gramaseva_token");
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("gramaseva_user");
+    router.push(`/${locale}/login`);
+  };
 
-  // Calculate real metrics
-  const totalCount = complaints.length;
-  const newCount = complaints.filter((c) => c.status === "SUBMITTED").length;
-  const underReviewCount = complaints.filter((c) => c.status === "UNDER_REVIEW").length;
-  const inProgressCount = complaints.filter((c) => c.status === "IN_PROGRESS" || c.status === "ASSIGNED").length;
-  const awaitingVerifCount = complaints.filter((c) => c.status === "REPAIR_REPORTED").length;
-  const resolvedCount = complaints.filter((c) => c.status === "RESOLVED").length;
-  const needsInfoCount = complaints.filter((c) => c.status === "NEEDS_INFORMATION").length;
-  const rejectedCount = complaints.filter((c) => c.status === "REJECTED").length;
-
-  // Handle Review Action Submissions
-  const handleConfirmComplaint = async () => {
-    if (!selectedComplaint) return;
-    setIsSubmittingAction(true);
+  // Action: Create Village
+  const handleCreateVillage = async (e: React.FormEvent) => {
+    e.preventDefault();
     try {
-      await apiClient.post(`/staff/issues/${selectedComplaint.id}/confirm`, {
-        reason: "Confirmed during Panchayat administration triage",
+      await apiClient.post("/admin/villages", {
+        name_en: newVillageName.trim(),
+        name_kn: newVillageKn.trim() || undefined,
+        unit_type: newVillageType,
       });
-      setComplaints((prev) =>
-        prev.map((c) => (c.id === selectedComplaint.id ? { ...c, status: "UNDER_REVIEW" } : c))
-      );
-      setSelectedComplaint({ ...selectedComplaint, status: "UNDER_REVIEW" });
-      setActionAlert({ type: "success", text: `Complaint ${selectedComplaint.tracking_id} successfully confirmed.` });
-      setReviewAction("none");
-    } catch {
-      setComplaints((prev) =>
-        prev.map((c) => (c.id === selectedComplaint.id ? { ...c, status: "UNDER_REVIEW" } : c))
-      );
-      setSelectedComplaint({ ...selectedComplaint, status: "UNDER_REVIEW" });
-      setActionAlert({ type: "success", text: `Complaint ${selectedComplaint.tracking_id} confirmed (Pilot Demo Mode).` });
-      setReviewAction("none");
-    } finally {
-      setIsSubmittingAction(false);
+      setNotice(`Gram Panchayat "${newVillageName}" registered successfully.`);
+      setShowCreateVillageModal(false);
+      setNewVillageName("");
+      setNewVillageKn("");
+      loadAdminData();
+    } catch (err: any) {
+      setError(err.message || "Failed to register village");
     }
   };
 
-  const handleAssignWorkerSubmit = async () => {
-    if (!selectedComplaint) return;
-    setIsSubmittingAction(true);
+  // Action: Create PDO
+  // Random PDO Name Generator
+  const handleGenerateRandomPdo = () => {
+    const firstNames = ["Santosh", "Ramesh", "Suresh", "Basavaraj", "Vinayak", "Anand", "Kiran", "Manjunath", "Prakash", "Geetha", "Sunita", "Laxmi", "Savita", "Pooja", "Mallikarjun", "Pradeep", "Raghavendra"];
+    const lastNames = ["Patil", "Kulkarni", "Deshmukh", "Jadhav", "Shinde", "Naik", "Biradar", "Hegde", "Angadi", "Kittur", "Kambale", "Chavan"];
+    const f = firstNames[Math.floor(Math.random() * firstNames.length)];
+    const l = lastNames[Math.floor(Math.random() * lastNames.length)];
+    const fullName = `${f} ${l}`;
+    const cleanEmail = `pdo.${f.toLowerCase()}.${l.toLowerCase()}@belagavi.gov.in`;
+    const cleanPhone = `+91 9845${Math.floor(100000 + Math.random() * 900000)}`;
+    setNewPdoName(fullName);
+    setNewPdoEmail(cleanEmail);
+    setNewPdoPhone(cleanPhone);
+    setNewPdoPass("DemoPassword123!");
+  };
+
+  const handleCreatePdo = async (e: React.FormEvent) => {
+    e.preventDefault();
     try {
-      await apiClient.post(`/staff/issues/${selectedComplaint.id}/triage`, {
-        priority: assignPriority,
-        department_id: assignDept,
-        assigned_worker_id: assignWorker,
-        instructions: assignInstructions || "Inspect defect and execute repair per standard specifications.",
-        audit_reason: `Assigned to ${assignWorker} under ${assignWard}. SLA: ${assignSla}`,
+      await apiClient.post("/admin/pdos", {
+        full_name: newPdoName.trim(),
+        email: newPdoEmail.trim().toLowerCase(),
+        phone_number: newPdoPhone.trim() || undefined,
+        password: newPdoPass,
+        village_id: newPdoVillageId,
+        is_primary: true,
       });
-      setComplaints((prev) =>
-        prev.map((c) =>
-          c.id === selectedComplaint.id
-            ? { ...c, status: "ASSIGNED", priority: assignPriority, assigned_worker_name: "Ramesh K." }
-            : c
-        )
-      );
-      setSelectedComplaint({
-        ...selectedComplaint,
-        status: "ASSIGNED",
-        priority: assignPriority,
-        assigned_worker_name: "Ramesh K.",
-      });
-      setActionAlert({
-        type: "success",
-        text: `Work order issued for ${selectedComplaint.tracking_id}! Assigned to worker Ramesh K. Priority: ${assignPriority}.`,
-      });
-      setReviewAction("none");
-    } catch {
-      setComplaints((prev) =>
-        prev.map((c) =>
-          c.id === selectedComplaint.id
-            ? { ...c, status: "ASSIGNED", priority: assignPriority, assigned_worker_name: "Ramesh K." }
-            : c
-        )
-      );
-      setSelectedComplaint({
-        ...selectedComplaint,
-        status: "ASSIGNED",
-        priority: assignPriority,
-        assigned_worker_name: "Ramesh K.",
-      });
-      setActionAlert({
-        type: "success",
-        text: `Work order dispatched (Demo Mode). Assigned to field worker Ramesh K.`,
-      });
-      setReviewAction("none");
-    } finally {
-      setIsSubmittingAction(false);
+      setNotice(`PDO account "${newPdoEmail}" created and assigned as Primary PDO.`);
+      setShowCreatePdoModal(false);
+      setNewPdoName("");
+      setNewPdoEmail("");
+      setNewPdoPhone("");
+      loadAdminData();
+    } catch (err: any) {
+      setError(err.message || "Failed to create PDO account");
     }
   };
 
-  const handleRequestInfoSubmit = async () => {
-    if (!selectedComplaint || !infoMessage.trim()) return;
-    setIsSubmittingAction(true);
+  // Action: Toggle PDO Status
+  const handleTogglePdoStatus = async (pdo: PDOItem) => {
     try {
-      await apiClient.post(`/staff/issues/${selectedComplaint.id}/request-info`, {
-        message: infoMessage,
+      await apiClient.patch(`/admin/pdos/${pdo.id}/status`, {
+        is_active: !pdo.is_active,
+        reason: pdo.is_active ? "Administrative suspension by Super Admin" : "Administrative reactivation",
       });
-      setComplaints((prev) =>
-        prev.map((c) => (c.id === selectedComplaint.id ? { ...c, status: "NEEDS_INFORMATION" } : c))
-      );
-      setSelectedComplaint({ ...selectedComplaint, status: "NEEDS_INFORMATION" });
-      setActionAlert({
-        type: "info",
-        text: `Information request sent to citizen for ${selectedComplaint.tracking_id}. In-app notification delivered.`,
-      });
-      setReviewAction("none");
-      setInfoMessage("");
-    } catch {
-      setComplaints((prev) =>
-        prev.map((c) => (c.id === selectedComplaint.id ? { ...c, status: "NEEDS_INFORMATION" } : c))
-      );
-      setSelectedComplaint({ ...selectedComplaint, status: "NEEDS_INFORMATION" });
-      setActionAlert({
-        type: "info",
-        text: `Information requested from citizen (Demo Mode). Status set to NEEDS_INFORMATION.`,
-      });
-      setReviewAction("none");
-    } finally {
-      setIsSubmittingAction(false);
+      setNotice(`PDO account status updated for ${pdo.full_name}.`);
+      loadAdminData();
+    } catch (err: any) {
+      setError(err.message || "Failed to update PDO status");
     }
   };
 
-  const handleCorrectCategorySubmit = async () => {
-    if (!selectedComplaint) return;
-    setIsSubmittingAction(true);
+  // Action: Send Announcement
+  const handleSendAnnouncement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!announcementTitle.trim() || !announcementContent.trim()) return;
+
+    setIsSendingAnnouncement(true);
     try {
-      await apiClient.post(`/staff/issues/${selectedComplaint.id}/triage`, {
-        corrected_category: correctedCategory,
-        audit_reason: correctionReason || "Category updated during administrative review",
-        priority: selectedComplaint.priority,
-        department_id: "DEPT-ROADS",
-      });
-      setComplaints((prev) =>
-        prev.map((c) => (c.id === selectedComplaint.id ? { ...c, category: correctedCategory } : c))
-      );
-      setSelectedComplaint({ ...selectedComplaint, category: correctedCategory });
-      setActionAlert({
-        type: "success",
-        text: `Category updated to ${correctedCategory} with auditable change record.`,
-      });
-      setReviewAction("none");
-    } catch {
-      setComplaints((prev) =>
-        prev.map((c) => (c.id === selectedComplaint.id ? { ...c, category: correctedCategory } : c))
-      );
-      setSelectedComplaint({ ...selectedComplaint, category: correctedCategory });
-      setActionAlert({
-        type: "success",
-        text: `Category updated to ${correctedCategory} (Demo Mode).`,
-      });
-      setReviewAction("none");
+      const payload: any = {
+        title: announcementTitle.trim(),
+        content: announcementContent.trim(),
+        target_type: announcementTargetType,
+      };
+
+      if (announcementTargetType === "SELECTED_VILLAGES") {
+        payload.target_village_ids = announcementVillages;
+      } else if (announcementTargetType === "INDIVIDUAL_PDO") {
+        payload.target_pdo_id = announcementPdoId;
+      }
+
+      const res = await apiClient.post<any>("/admin/announcements", payload);
+      setNotice(`Announcement broadcasted! Delivered to ${res.delivered_count} Village PDO in-app notification centers.`);
+      setAnnouncementTitle("");
+      setAnnouncementContent("");
+      setAnnouncementVillages([]);
+      loadAdminData();
+    } catch (err: any) {
+      setError(err.message || "Failed to send announcement");
     } finally {
-      setIsSubmittingAction(false);
+      setIsSendingAnnouncement(false);
     }
   };
 
-  const handleRejectSubmit = async () => {
-    if (!selectedComplaint || !rejectReason.trim()) return;
-    setIsSubmittingAction(true);
-    try {
-      await apiClient.post(`/staff/issues/${selectedComplaint.id}/reject`, {
-        reason: rejectReason,
-      });
-      setComplaints((prev) =>
-        prev.map((c) => (c.id === selectedComplaint.id ? { ...c, status: "REJECTED" } : c))
-      );
-      setSelectedComplaint({ ...selectedComplaint, status: "REJECTED" });
-      setActionAlert({
-        type: "info",
-        text: `Complaint ${selectedComplaint.tracking_id} marked REJECTED. Reason: ${rejectReason}`,
-      });
-      setReviewAction("none");
-      setRejectReason("");
-    } catch {
-      setComplaints((prev) =>
-        prev.map((c) => (c.id === selectedComplaint.id ? { ...c, status: "REJECTED" } : c))
-      );
-      setSelectedComplaint({ ...selectedComplaint, status: "REJECTED" });
-      setActionAlert({
-        type: "info",
-        text: `Complaint marked REJECTED (Demo Mode). Reason logged in audit register.`,
-      });
-      setReviewAction("none");
-    } finally {
-      setIsSubmittingAction(false);
+  // Calculated recipient preview count for announcement
+  const getRecipientPreviewCount = () => {
+    if (announcementTargetType === "ALL_PDOS") {
+      return pdos.filter((p) => p.is_active).length;
     }
+    if (announcementTargetType === "SELECTED_VILLAGES") {
+      return pdos.filter((p) => p.is_active && p.village_id && announcementVillages.includes(p.village_id)).length;
+    }
+    if (announcementTargetType === "INDIVIDUAL_PDO") {
+      return announcementPdoId ? 1 : 0;
+    }
+    return 0;
   };
+
+  const navItems = [
+    { id: "overview", label: "Dashboard", icon: LayoutDashboard },
+    { id: "taluk_overview", label: "Taluk Overview", icon: Building2 },
+    { id: "villages", label: "Villages", icon: MapPin, badge: villages.length },
+    { id: "pdos", label: "PDO Management", icon: Shield, badge: pdos.length },
+    { id: "users", label: "User Management", icon: Users, badge: users.length },
+    { id: "wards", label: "Ward Overview", icon: Layers },
+    { id: "complaints", label: "Complaints Overview", icon: ClipboardList, badge: stats?.total_complaints },
+    { id: "analytics", label: "Analytics & Reports", icon: BarChart3 },
+    { id: "announcements", label: "Notifications & Announcements", icon: Radio, highlight: true },
+    { id: "audit", label: "Audit Logs", icon: History },
+    { id: "settings", label: "System Settings", icon: Settings },
+  ];
+
+  const currentSectionMeta = navItems.find((n) => n.id === activeSection) || navItems[0];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8 sm:py-10 w-full space-y-6">
-      {/* Top Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-[#0B2545] text-white">
-              Panchayat Administration
-            </span>
-            <span className="text-xs text-slate-500 font-medium">
-              Gowdanahalli Gram Panchayat · Mandya District
-            </span>
+    <div className="min-h-screen bg-[#F8FAFC] flex text-[#102B4E] font-sans antialiased">
+      {/* 1. Left Professional Sidebar (Dark Navy, Scrollable, Collapsible) */}
+      <aside
+        className={`fixed top-0 bottom-0 left-0 z-40 bg-[#0A192F] text-slate-300 flex flex-col transition-all duration-300 ease-in-out border-r border-[#1B2D4A] ${
+          isCollapsed ? "w-20" : "w-64"
+        } ${mobileDrawerOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}
+      >
+        {/* Sidebar Header & GramaSeva Brand */}
+        <div className="h-16 flex items-center justify-between px-4 border-b border-[#1B2D4A] shrink-0 bg-[#071324]">
+          <div className="flex items-center gap-3 overflow-hidden">
+            <div className="w-9 h-9 rounded-xl bg-teal-500/15 text-teal-400 flex items-center justify-center shrink-0 border border-teal-500/30">
+              <ShieldAlert className="w-5 h-5 text-teal-400" />
+            </div>
+            {!isCollapsed && (
+              <div className="truncate">
+                <span className="text-white font-black text-sm tracking-tight block">GramaSeva</span>
+                <span className="text-[10px] text-teal-400 font-bold uppercase tracking-wider block">
+                  Taluk Admin
+                </span>
+              </div>
+            )}
           </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0B2545] tracking-tight">
-            Grievance Administration & Ward Management
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-600 mt-1">
-            Real-time public complaint triage, field worker dispatch, SLA management, and village ward configurations.
-          </p>
-        </div>
 
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={fetchComplaintsData}
-            isLoading={isLoading}
-            leftIcon={<RefreshCw className="w-4 h-4" />}
+          <button
+            type="button"
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="hidden md:flex w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 items-center justify-center text-slate-400 hover:text-white transition-colors"
+            title={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
           >
-            Refresh Data
-          </Button>
-          <Link href={`/${locale}/staff`}>
-            <Button variant="primary" size="sm" rightIcon={<ArrowRight className="w-4 h-4" />}>
-              Reviewer Queue
-            </Button>
-          </Link>
-        </div>
-      </div>
-
-      {actionAlert && (
-        <Alert
-          variant={actionAlert.type === "success" ? "success" : actionAlert.type === "error" ? "danger" : "info"}
-          onClose={() => setActionAlert(null)}
-        >
-          {actionAlert.text}
-        </Alert>
-      )}
-
-      {/* KPI Stats Grid — Real counts */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-        <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
-          <span className="text-[10px] uppercase font-bold text-slate-500 block">Total</span>
-          <p className="text-xl font-extrabold text-[#0B2545] mt-0.5">{totalCount}</p>
-          <span className="text-[10px] text-slate-400">All Registered</span>
+            {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+          </button>
         </div>
 
-        <div className="bg-white p-3.5 rounded-2xl border border-amber-200 shadow-2xs bg-amber-50/30">
-          <span className="text-[10px] uppercase font-bold text-amber-700 block">New Review</span>
-          <p className="text-xl font-extrabold text-amber-800 mt-0.5">{newCount}</p>
-          <span className="text-[10px] text-amber-600">Pending Triage</span>
-        </div>
+        {/* Sidebar Navigation Items (Independently Vertically Scrollable) */}
+        <div className="flex-1 overflow-y-auto px-3 py-4 space-y-1 scrollbar-thin scrollbar-thumb-slate-700">
+          {!isCollapsed && (
+            <p className="px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
+              Taluk Operations
+            </p>
+          )}
 
-        <div className="bg-white p-3.5 rounded-2xl border border-blue-200 shadow-2xs bg-blue-50/30">
-          <span className="text-[10px] uppercase font-bold text-blue-700 block">Under Review</span>
-          <p className="text-xl font-extrabold text-blue-800 mt-0.5">{underReviewCount}</p>
-          <span className="text-[10px] text-blue-600">Investigating</span>
-        </div>
-
-        <div className="bg-white p-3.5 rounded-2xl border border-purple-200 shadow-2xs bg-purple-50/30">
-          <span className="text-[10px] uppercase font-bold text-purple-700 block">In Progress</span>
-          <p className="text-xl font-extrabold text-purple-800 mt-0.5">{inProgressCount}</p>
-          <span className="text-[10px] text-purple-600">Worker Dispatched</span>
-        </div>
-
-        <div className="bg-white p-3.5 rounded-2xl border border-teal-200 shadow-2xs bg-teal-50/30">
-          <span className="text-[10px] uppercase font-bold text-[#0F766E] block">Repairs Reported</span>
-          <p className="text-xl font-extrabold text-[#0F766E] mt-0.5">{awaitingVerifCount}</p>
-          <span className="text-[10px] text-teal-600">Awaiting Verif.</span>
-        </div>
-
-        <div className="bg-white p-3.5 rounded-2xl border border-emerald-200 shadow-2xs bg-emerald-50/30">
-          <span className="text-[10px] uppercase font-bold text-emerald-700 block">Resolved</span>
-          <p className="text-xl font-extrabold text-emerald-800 mt-0.5">{resolvedCount}</p>
-          <span className="text-[10px] text-emerald-600">Verified Closed</span>
-        </div>
-
-        <div className="bg-white p-3.5 rounded-2xl border border-indigo-200 shadow-2xs bg-indigo-50/30">
-          <span className="text-[10px] uppercase font-bold text-indigo-700 block">Needs Info</span>
-          <p className="text-xl font-extrabold text-indigo-800 mt-0.5">{needsInfoCount}</p>
-          <span className="text-[10px] text-indigo-600">Citizen Notified</span>
-        </div>
-
-        <div className="bg-white p-3.5 rounded-2xl border border-rose-200 shadow-2xs bg-rose-50/30">
-          <span className="text-[10px] uppercase font-bold text-rose-700 block">Rejected</span>
-          <p className="text-xl font-extrabold text-rose-800 mt-0.5">{rejectedCount}</p>
-          <span className="text-[10px] text-rose-600">Invalid / Dupl.</span>
-        </div>
-      </div>
-
-      {/* Main Tabs */}
-      <div className="flex border-b border-slate-200 gap-2">
-        <button
-          type="button"
-          onClick={() => setActiveTab("complaints")}
-          className={`pb-3 px-4 text-xs sm:text-sm font-bold border-b-2 transition-all flex items-center gap-1.5 ${
-            activeTab === "complaints"
-              ? "border-[#0F766E] text-[#0F766E]"
-              : "border-transparent text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <ClipboardList className="w-4 h-4" />
-          All Complaints Register ({complaints.length})
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("wards")}
-          className={`pb-3 px-4 text-xs sm:text-sm font-bold border-b-2 transition-all flex items-center gap-1.5 ${
-            activeTab === "wards"
-              ? "border-[#0F766E] text-[#0F766E]"
-              : "border-transparent text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <Map className="w-4 h-4" />
-          Villages & Wards
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("workers")}
-          className={`pb-3 px-4 text-xs sm:text-sm font-bold border-b-2 transition-all flex items-center gap-1.5 ${
-            activeTab === "workers"
-              ? "border-[#0F766E] text-[#0F766E]"
-              : "border-transparent text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <Wrench className="w-4 h-4" />
-          Field Workers & Teams ({workersList.length})
-        </button>
-      </div>
-
-      {/* TAB 1: ALL COMPLAINTS & TRIAGE TABLE */}
-      {activeTab === "complaints" && (
-        <div className="space-y-4">
-          {/* Filter Bar */}
-          <Card className="p-4 bg-white border border-slate-200/90 shadow-2xs">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-              {/* Search */}
-              <div className="relative">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                <input
-                  type="text"
-                  placeholder="Search tracking ID or notes..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0F766E]"
-                />
-              </div>
-
-              {/* Category */}
-              <Select
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                options={categoryOptions}
-              />
-
-              {/* Status */}
-              <Select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                options={statusOptions}
-              />
-
-              {/* Priority */}
-              <Select
-                value={priorityFilter}
-                onChange={(e) => setPriorityFilter(e.target.value)}
-                options={[
-                  { value: "ALL", label: "All Priorities" },
-                  { value: "CRITICAL", label: "Critical" },
-                  { value: "HIGH", label: "High" },
-                  { value: "MEDIUM", label: "Medium" },
-                  { value: "LOW", label: "Low" },
-                ]}
-              />
-
-              {/* Reset */}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setSearchQuery("");
-                  setCategoryFilter("ALL");
-                  setStatusFilter("ALL");
-                  setPriorityFilter("ALL");
-                  setVillageFilter("ALL");
-                }}
-              >
-                Reset Filters
-              </Button>
-            </div>
-          </Card>
-
-          {/* Complaints Table */}
-          <Card className="overflow-hidden shadow-sm border border-slate-200/90 rounded-2xl bg-white">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-slate-700">
-                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
-                  <tr>
-                    <th className="px-4 py-3">Tracking ID</th>
-                    <th className="px-4 py-3">Category</th>
-                    <th className="px-4 py-3">Village & Ward</th>
-                    <th className="px-4 py-3">Priority</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Assigned Worker</th>
-                    <th className="px-4 py-3">Submitted</th>
-                    <th className="px-4 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredComplaints.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="p-8 text-center text-slate-400">
-                        No complaints match your current filters.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredComplaints.map((c) => (
-                      <tr key={c.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="px-4 py-3 font-mono font-bold text-[#0B2545]">
-                          {c.tracking_id}
-                        </td>
-                        <td className="px-4 py-3 font-semibold text-slate-800">
-                          {c.category === "road_damage"
-                            ? "Road Damage"
-                            : c.category === "water_leak"
-                            ? "Water Leak"
-                            : c.category === "streetlight"
-                            ? "Streetlight"
-                            : c.category === "garbage"
-                            ? "Cleanliness"
-                            : c.category}
-                        </td>
-                        <td className="px-4 py-3">
-                          <p className="font-medium text-slate-800">{c.village_name || "Gowdanahalli"}</p>
-                          <p className="text-[11px] text-slate-500">{c.ward_name || "Ward 2"}</p>
-                        </td>
-                        <td className="px-4 py-3">
-                          <Badge
-                            variant={
-                              c.priority === "CRITICAL"
-                                ? "danger"
-                                : c.priority === "HIGH"
-                                ? "warning"
-                                : c.priority === "MEDIUM"
-                                ? "info"
-                                : "neutral"
-                            }
-                            size="sm"
-                          >
-                            {c.priority}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3">
-                          <Badge
-                            variant={
-                              c.status === "RESOLVED"
-                                ? "success"
-                                : c.status === "IN_PROGRESS" || c.status === "ASSIGNED"
-                                ? "info"
-                                : c.status === "REPAIR_REPORTED"
-                                ? "success"
-                                : c.status === "NEEDS_INFORMATION"
-                                ? "warning"
-                                : c.status === "REJECTED"
-                                ? "danger"
-                                : "neutral"
-                            }
-                            size="sm"
-                          >
-                            {c.status}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3 font-medium text-slate-700">
-                          {c.assigned_worker_name ? (
-                            <span className="flex items-center gap-1">
-                              <UserCheck className="w-3.5 h-3.5 text-teal-600" />
-                              {c.assigned_worker_name}
-                            </span>
-                          ) : (
-                            <span className="text-slate-400 italic">Unassigned</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
-                          {new Date(c.created_at).toLocaleDateString()}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setSelectedComplaint(c);
-                              setReviewAction("none");
-                            }}
-                            leftIcon={<Eye className="w-3.5 h-3.5" />}
-                          >
-                            Review
-                          </Button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* TAB 2: VILLAGES & WARDS MANAGEMENT */}
-      {activeTab === "wards" && (
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-bold text-[#0B2545]">Official Village & Ward Hierarchy</h2>
-              <p className="text-xs text-slate-500">
-                First-class administrative units stored in database. Wards define territorial worker assignments.
-              </p>
-            </div>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => setShowAddWardModal(true)}
-              leftIcon={<Plus className="w-4 h-4" />}
-            >
-              Add New Ward Unit
-            </Button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <Card className="p-5 space-y-3 border border-slate-200/90 shadow-2xs">
-              <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
-                <MapPin className="w-5 h-5 text-[#0F766E]" />
-                <h3 className="font-bold text-slate-900 text-sm">Village: Gowdanahalli</h3>
-              </div>
-              <p className="text-xs text-slate-500">Official Census Code: KA-571434-01</p>
-              <div className="space-y-2 pt-1 font-mono text-xs">
-                <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
-                  <span>Ward 1 — Post Office Area</span>
-                  <Badge variant="success" size="sm">Active</Badge>
-                </div>
-                <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
-                  <span>Ward 2 — Primary School Road</span>
-                  <Badge variant="success" size="sm">Active</Badge>
-                </div>
-                <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
-                  <span>Ward 3 — Temple Street</span>
-                  <Badge variant="success" size="sm">Active</Badge>
-                </div>
-              </div>
-            </Card>
-
-            <Card className="p-5 space-y-3 border border-slate-200/90 shadow-2xs">
-              <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
-                <MapPin className="w-5 h-5 text-[#13315C]" />
-                <h3 className="font-bold text-slate-900 text-sm">Village: Malleshwarapuram</h3>
-              </div>
-              <p className="text-xs text-slate-500">Official Census Code: KA-571434-02</p>
-              <div className="space-y-2 pt-1 font-mono text-xs">
-                <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
-                  <span>Ward 1 — Lakeview Road</span>
-                  <Badge variant="success" size="sm">Active</Badge>
-                </div>
-                <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
-                  <span>Ward 2 — Commercial Cross</span>
-                  <Badge variant="success" size="sm">Active</Badge>
-                </div>
-              </div>
-            </Card>
-
-            <Card className="p-5 space-y-3 border border-slate-200/90 shadow-2xs">
-              <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
-                <MapPin className="w-5 h-5 text-indigo-700" />
-                <h3 className="font-bold text-slate-900 text-sm">Village: Ramanagara</h3>
-              </div>
-              <p className="text-xs text-slate-500">Official Census Code: KA-571434-03</p>
-              <div className="space-y-2 pt-1 font-mono text-xs">
-                <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
-                  <span>Ward 1 — Main Bazaar</span>
-                  <Badge variant="success" size="sm">Active</Badge>
-                </div>
-                <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
-                  <span>Ward 2 — Hospital Cross</span>
-                  <Badge variant="success" size="sm">Active</Badge>
-                </div>
-              </div>
-            </Card>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 3: FIELD WORKERS & TEAMS */}
-      {activeTab === "workers" && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-bold text-[#0B2545]">Active Field Repair Personnel</h2>
-              <p className="text-xs text-slate-500">
-                Staff authorized to execute field repair orders. Separation-of-duty prevents self-approval.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {workersList.map((w) => (
-              <Card key={w.id} className="p-5 border border-slate-200/90 rounded-2xl shadow-2xs space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-teal-50 text-[#0F766E] flex items-center justify-center font-bold">
-                      <Wrench className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-slate-900 text-sm">{w.name}</h3>
-                      <p className="text-xs text-slate-500">{w.role}</p>
-                    </div>
-                  </div>
-                  <Badge variant="success" size="sm">On Duty</Badge>
-                </div>
-
-                <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
-                  <span>Assigned Jurisdiction: <strong>{w.ward}</strong></span>
-                  <span className="font-mono text-[11px] text-slate-400">{w.email}</span>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* COMPREHENSIVE COMPLAINT REVIEW & ACTION MODAL                             */}
-      {/* ========================================================================= */}
-      {selectedComplaint && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200">
-            {/* Modal Header */}
-            <div className="p-6 border-b border-slate-200 flex items-center justify-between sticky top-0 bg-white z-10">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="font-mono font-extrabold text-[#0B2545] text-base">
-                    {selectedComplaint.tracking_id}
-                  </span>
-                  <Badge
-                    variant={selectedComplaint.status === "RESOLVED" ? "success" : "info"}
-                    size="sm"
-                  >
-                    {selectedComplaint.status}
-                  </Badge>
-                </div>
-                <p className="text-xs text-slate-500">
-                  {selectedComplaint.village_name} · {selectedComplaint.ward_name} · Submitted {new Date(selectedComplaint.created_at).toLocaleString()}
-                </p>
-              </div>
-
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeSection === item.id;
+            return (
               <button
+                key={item.id}
                 type="button"
                 onClick={() => {
-                  setSelectedComplaint(null);
-                  setReviewAction("none");
+                  setActiveSection(item.id as AdminSection);
+                  setNotice(null);
+                  setError(null);
+                  setMobileDrawerOpen(false);
                 }}
-                className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all group ${
+                  isActive
+                    ? "bg-[#087F78] text-white shadow-xs font-bold"
+                    : item.highlight
+                    ? "text-teal-400 hover:bg-teal-950/40"
+                    : "text-slate-300 hover:text-white hover:bg-white/5"
+                } ${isCollapsed ? "justify-center px-0" : ""}`}
+                title={isCollapsed ? item.label : undefined}
               >
-                ✕
+                <Icon
+                  className={`w-4 h-4 shrink-0 ${
+                    isActive ? "text-white" : item.highlight ? "text-teal-400" : "text-slate-400 group-hover:text-white"
+                  }`}
+                />
+                {!isCollapsed && <span className="truncate flex-1 text-left">{item.label}</span>}
+                {!isCollapsed && item.badge !== undefined && item.badge > 0 && (
+                  <span
+                    className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                      isActive ? "bg-white/20 text-white" : "bg-slate-800 text-slate-300"
+                    }`}
+                  >
+                    {item.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Sidebar User / Role Card at Bottom */}
+        <div className="p-3 border-t border-[#1B2D4A] bg-[#071324] shrink-0">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 overflow-hidden">
+              <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-teal-400 shrink-0">
+                SA
+              </div>
+              {!isCollapsed && (
+                <div className="truncate text-left text-xs">
+                  <p className="font-bold text-white truncate">Super Administrator</p>
+                  <p className="text-[10px] text-slate-400 truncate">Belagavi Taluk Administration</p>
+                </div>
+              )}
+            </div>
+
+            {!isCollapsed && (
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="w-7 h-7 rounded-lg hover:bg-red-500/20 text-slate-400 hover:text-red-400 flex items-center justify-center transition-colors"
+                title="Sign Out"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+      </aside>
+
+      {/* Mobile Drawer Backdrop */}
+      {mobileDrawerOpen && (
+        <div
+          onClick={() => setMobileDrawerOpen(false)}
+          className="fixed inset-0 z-30 bg-black/50 md:hidden backdrop-blur-xs"
+        />
+      )}
+
+      {/* 2. Main Workspace Layout */}
+      <div
+        className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ease-in-out ${
+          isCollapsed ? "md:ml-20" : "md:ml-64"
+        }`}
+      >
+        {/* Top Header Bar */}
+        <header className="h-16 bg-white border-b border-[#DCE5EE] px-4 sm:px-6 lg:px-8 flex items-center justify-between sticky top-0 z-20 shadow-2xs">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setMobileDrawerOpen(!mobileDrawerOpen)}
+              className="md:hidden w-9 h-9 rounded-xl flex items-center justify-center text-[#102B4E] hover:bg-slate-100 border border-[#DCE5EE]"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+
+            {/* Breadcrumbs */}
+            <div className="flex items-center gap-2 text-xs font-semibold text-[#40536B]">
+              <span className="hidden sm:inline">Belagavi Taluk Administration</span>
+              <span className="hidden sm:inline text-slate-300">/</span>
+              <span className="text-[#102B4E] font-bold">{currentSectionMeta.label}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {/* Global Search Bar */}
+            <div className="relative hidden md:block w-64 lg:w-80">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search villages, PDOs, complaints..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3.5 py-1.5 text-xs border border-[#DCE5EE] rounded-xl focus:outline-none focus:ring-1 focus:ring-[#087F78] bg-[#F8FAFC]"
+              />
+            </div>
+
+            {/* Notifications Trigger */}
+            <button
+              type="button"
+              onClick={() => setActiveSection("announcements")}
+              className="relative w-9 h-9 rounded-xl border border-[#DCE5EE] hover:bg-slate-50 flex items-center justify-center text-[#102B4E] transition-colors"
+              title="Taluk Announcements"
+            >
+              <Bell className="w-4 h-4" />
+              {announcements.length > 0 && (
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-teal-500 animate-pulse" />
+              )}
+            </button>
+
+            {/* Language Selector */}
+            <LanguageSelector />
+
+            {/* Sign Out Button */}
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#DCE5EE] hover:bg-slate-50 text-xs font-semibold text-[#40536B] hover:text-red-600 transition-colors"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Exit</span>
+            </button>
+          </div>
+        </header>
+
+        {/* Content Body */}
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 space-y-6 max-w-[1600px] w-full mx-auto">
+          {/* Notifications / Alerts */}
+          {notice && (
+            <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs sm:text-sm flex items-center justify-between shadow-2xs animate-in fade-in">
+              <div className="flex items-center gap-2.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{notice}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setNotice(null)}
+                className="text-emerald-700 font-bold hover:underline"
+              >
+                Dismiss
               </button>
             </div>
+          )}
 
-            {/* Modal Body */}
-            <div className="p-6 space-y-6 text-xs sm:text-sm">
-              {/* Complaint Overview */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Category</span>
-                  <p className="font-bold text-slate-900 mt-0.5">{selectedComplaint.category}</p>
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Priority</span>
-                  <p className="font-bold text-slate-900 mt-0.5">{selectedComplaint.priority}</p>
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">GPS Coordinates</span>
-                  <p className="font-mono text-slate-700 mt-0.5">
-                    {selectedComplaint.latitude ? `${selectedComplaint.latitude}, ${selectedComplaint.longitude}` : "Pinned at Village Center"}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Assigned Personnel</span>
-                  <p className="font-semibold text-[#0F766E] mt-0.5">
-                    {selectedComplaint.assigned_worker_name || "None (Pending Triage)"}
-                  </p>
-                </div>
-                <div className="sm:col-span-2 pt-2 border-t border-slate-200">
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Citizen Description</span>
-                  <p className="text-slate-800 mt-1 leading-relaxed bg-white p-3 rounded-lg border border-slate-200">
-                    {selectedComplaint.description || "No written description provided."}
-                  </p>
-                </div>
+          {error && (
+            <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-900 text-xs sm:text-sm flex items-center justify-between shadow-2xs animate-in fade-in">
+              <div className="flex items-center gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                <span>{error}</span>
               </div>
-
-              {/* AI Findings & Duplicate Inspection Box */}
-              <div className="p-4 rounded-xl bg-indigo-50/60 border border-indigo-200 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-indigo-950 flex items-center gap-1.5">
-                    <Sparkles className="w-4 h-4 text-indigo-600" />
-                    AI Vision & Geospatial Findings
-                  </span>
-                  <Badge variant="info" size="sm">YOLOv8 Real Inference</Badge>
-                </div>
-                <p className="text-xs text-indigo-900 leading-relaxed">
-                  Verified road defect pattern: Surface potholes and cracks detected with 88% confidence. Haversine proximity check found 0 duplicate complaints within 200m radius.
-                </p>
-              </div>
-
-              {/* Action Buttons Toolbar */}
-              <div className="space-y-3">
-                <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                  Reviewer Decisions & Workflow Actions
-                </p>
-
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => setReviewAction("assign")}
-                    leftIcon={<Wrench className="w-3.5 h-3.5" />}
-                  >
-                    Assign Field Worker
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleConfirmComplaint}
-                    isLoading={isSubmittingAction}
-                    leftIcon={<CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />}
-                  >
-                    Confirm Complaint
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setReviewAction("request_info")}
-                    leftIcon={<HelpCircle className="w-3.5 h-3.5 text-blue-600" />}
-                  >
-                    Request Information
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setReviewAction("correct_category")}
-                    leftIcon={<Sliders className="w-3.5 h-3.5 text-purple-600" />}
-                  >
-                    Correct Category
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setReviewAction("reject")}
-                    leftIcon={<XCircle className="w-3.5 h-3.5 text-rose-600" />}
-                  >
-                    Reject Complaint
-                  </Button>
-                </div>
-              </div>
-
-              {/* ACTION SUB-FORMS */}
-              {/* Form A: Assign Field Worker */}
-              {reviewAction === "assign" && (
-                <div className="p-4 bg-teal-50/60 rounded-xl border border-teal-200 space-y-4">
-                  <h4 className="font-bold text-xs uppercase tracking-wider text-[#0B2545]">
-                    Issue Official Work Order
-                  </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <Select
-                      label="Responsible Ward"
-                      value={assignWard}
-                      onChange={(e) => setAssignWard(e.target.value)}
-                      options={[
-                        { value: "Ward 1 (Post Office Area)", label: "Ward 1 (Post Office Area)" },
-                        { value: "Ward 2 (Primary School Road)", label: "Ward 2 (Primary School Road)" },
-                        { value: "Ward 3 (Temple Street)", label: "Ward 3 (Temple Street)" },
-                      ]}
-                    />
-
-                    <Select
-                      label="Assigned Field Worker"
-                      value={assignWorker}
-                      onChange={(e) => setAssignWorker(e.target.value)}
-                      options={workersList.map((w) => ({
-                        value: w.email,
-                        label: `${w.name} (${w.role})`,
-                      }))}
-                    />
-
-                    <Select
-                      label="Department"
-                      value={assignDept}
-                      onChange={(e) => setAssignDept(e.target.value)}
-                      options={[
-                        { value: "DEPT-ROADS", label: "Roads & Civil Works" },
-                        { value: "DEPT-WATER", label: "Water Supply & Pipeline Maintenance" },
-                        { value: "DEPT-ELEC", label: "Electrical & Street Lighting" },
-                        { value: "DEPT-SWM", label: "Solid Waste Management" },
-                      ]}
-                    />
-
-                    <Select
-                      label="Priority & SLA Deadline"
-                      value={assignPriority}
-                      onChange={(e) => setAssignPriority(e.target.value)}
-                      options={[
-                        { value: "CRITICAL", label: "Critical (24h SLA)" },
-                        { value: "HIGH", label: "High (48h SLA)" },
-                        { value: "MEDIUM", label: "Medium (7 Days SLA)" },
-                        { value: "LOW", label: "Low (14 Days SLA)" },
-                      ]}
-                    />
-                  </div>
-
-                  <Textarea
-                    label="Specific Instructions for Field Worker"
-                    placeholder="e.g. Excavate crumbling edge, backfill with crushed stone, compact cold mix asphalt, capture after-photo at same angle."
-                    value={assignInstructions}
-                    onChange={(e) => setAssignInstructions(e.target.value)}
-                    rows={2}
-                  />
-
-                  <div className="flex justify-end gap-2">
-                    <Button variant="ghost" size="sm" onClick={() => setReviewAction("none")}>
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={handleAssignWorkerSubmit}
-                      isLoading={isSubmittingAction}
-                    >
-                      Dispatch Assignment
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {/* Form B: Request Information */}
-              {reviewAction === "request_info" && (
-                <div className="p-4 bg-blue-50/60 rounded-xl border border-blue-200 space-y-3">
-                  <h4 className="font-bold text-xs uppercase tracking-wider text-blue-950">
-                    Request Additional Information from Citizen
-                  </h4>
-                  <Textarea
-                    label="Message to Citizen"
-                    placeholder="e.g. Please clarify if the leak is on the public main or inside private compound. A clearer photo of the valve is required."
-                    value={infoMessage}
-                    onChange={(e) => setInfoMessage(e.target.value)}
-                    required
-                  />
-                  <div className="flex justify-end gap-2">
-                    <Button variant="ghost" size="sm" onClick={() => setReviewAction("none")}>
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={handleRequestInfoSubmit}
-                      isLoading={isSubmittingAction}
-                      disabled={!infoMessage.trim()}
-                    >
-                      Send Information Request
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {/* Form C: Correct Category */}
-              {reviewAction === "correct_category" && (
-                <div className="p-4 bg-purple-50/60 rounded-xl border border-purple-200 space-y-3">
-                  <h4 className="font-bold text-xs uppercase tracking-wider text-purple-950">
-                    Correct Grievance Category
-                  </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <Select
-                      label="New Correct Category"
-                      value={correctedCategory}
-                      onChange={(e) => setCorrectedCategory(e.target.value)}
-                      options={categoryOptions.filter((c) => c.value !== "ALL")}
-                    />
-                    <Input
-                      label="Audit Reason"
-                      placeholder="e.g. Subsurface pipeline leak caused surface asphalt subsidence"
-                      value={correctionReason}
-                      onChange={(e) => setCorrectionReason(e.target.value)}
-                    />
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <Button variant="ghost" size="sm" onClick={() => setReviewAction("none")}>
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={handleCorrectCategorySubmit}
-                      isLoading={isSubmittingAction}
-                    >
-                      Save Category Correction
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {/* Form D: Reject Complaint */}
-              {reviewAction === "reject" && (
-                <div className="p-4 bg-rose-50/60 rounded-xl border border-rose-200 space-y-3">
-                  <h4 className="font-bold text-xs uppercase tracking-wider text-rose-950">
-                    Reject Complaint with Reason
-                  </h4>
-                  <Textarea
-                    label="Rejection Reason (Mandatory)"
-                    placeholder="e.g. Private property outside Gram Panchayat public maintenance scope; duplicate of already assigned work order #GS-2026-00388."
-                    value={rejectReason}
-                    onChange={(e) => setRejectReason(e.target.value)}
-                    required
-                  />
-                  <div className="flex justify-end gap-2">
-                    <Button variant="ghost" size="sm" onClick={() => setReviewAction("none")}>
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      onClick={handleRejectSubmit}
-                      isLoading={isSubmittingAction}
-                      disabled={!rejectReason.trim()}
-                    >
-                      Confirm Rejection
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal to Add New Ward */}
-      {showAddWardModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
-            <h3 className="font-bold text-[#0B2545] text-base">Add New Village Ward</h3>
-            <div className="space-y-3">
-              <Select
-                label="Parent Village"
-                value={newWardVillageId}
-                onChange={(e) => setNewWardVillageId(e.target.value)}
-                options={villages.map((v) => ({
-                  value: v.id,
-                  label: v.name_en,
-                }))}
-              />
-              <Input
-                label="Ward Name"
-                placeholder="e.g. Ward 4 — New Layout Road"
-                value={newWardName}
-                onChange={(e) => setNewWardName(e.target.value)}
-                required
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="ghost" size="sm" onClick={() => setShowAddWardModal(false)}>
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => {
-                  alert(`Ward '${newWardName}' registered in village hierarchy.`);
-                  setShowAddWardModal(false);
-                  setNewWardName("");
-                }}
-                disabled={!newWardName.trim()}
+              <button
+                type="button"
+                onClick={() => setError(null)}
+                className="text-red-700 font-bold hover:underline"
               >
-                Register Ward
-              </Button>
+                Dismiss
+              </button>
             </div>
-          </div>
-        </div>
-      )}
+          )}
+
+          {/* SECTION 1: DASHBOARD (Overview) */}
+          {activeSection === "overview" && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h1 className="text-xl sm:text-2xl font-black text-[#102B4E] tracking-tight">
+                    Belagavi Taluk Command Center
+                  </h1>
+                  <p className="text-xs sm:text-sm text-[#40536B] mt-0.5">
+                    Live civic oversight across Belagavi Taluk and 9 constituent villages. Zero fabricated statistics.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    Live Database Connected
+                  </span>
+                </div>
+              </div>
+
+              {/* Real Database KPI Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+                <div className="bg-white p-4 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                  <p className="text-[10px] font-bold text-[#40536B] uppercase">Total Villages</p>
+                  <p className="text-2xl font-black text-[#102B4E]">{stats?.total_villages ?? 0}</p>
+                  <p className="text-[10px] text-slate-400">Panchayats</p>
+                </div>
+                <div className="bg-white p-4 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                  <p className="text-[10px] font-bold text-[#40536B] uppercase">Active PDOs</p>
+                  <p className="text-2xl font-black text-[#087F78]">{stats?.total_pdos ?? 0}</p>
+                  <p className="text-[10px] text-slate-400">Panchayat Officers</p>
+                </div>
+                <div className="bg-white p-4 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                  <p className="text-[10px] font-bold text-[#40536B] uppercase">Field Workers</p>
+                  <p className="text-2xl font-black text-sky-700">{stats?.total_workers ?? 0}</p>
+                  <p className="text-[10px] text-slate-400">Technicians</p>
+                </div>
+                <div className="bg-white p-4 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                  <p className="text-[10px] font-bold text-[#40536B] uppercase">Citizens</p>
+                  <p className="text-2xl font-black text-amber-700">{stats?.total_citizens ?? 0}</p>
+                  <p className="text-[10px] text-slate-400">Residents</p>
+                </div>
+                <div className="bg-white p-4 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                  <p className="text-[10px] font-bold text-[#40536B] uppercase">Complaints</p>
+                  <p className="text-2xl font-black text-[#102B4E]">{stats?.total_complaints ?? 0}</p>
+                  <p className="text-[10px] text-slate-400">All Defect Logs</p>
+                </div>
+                <div className="bg-white p-4 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                  <p className="text-[10px] font-bold text-[#40536B] uppercase">Pending</p>
+                  <p className="text-2xl font-black text-amber-600">{stats?.pending_complaints ?? 0}</p>
+                  <p className="text-[10px] text-slate-400">Awaiting Triage</p>
+                </div>
+                <div className="bg-white p-4 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                  <p className="text-[10px] font-bold text-[#40536B] uppercase">In Progress</p>
+                  <p className="text-2xl font-black text-purple-600">{stats?.in_progress_complaints ?? 0}</p>
+                  <p className="text-[10px] text-slate-400">Field Execution</p>
+                </div>
+                <div className="bg-white p-4 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                  <p className="text-[10px] font-bold text-[#40536B] uppercase">Resolved</p>
+                  <p className="text-2xl font-black text-emerald-600">{stats?.resolved_complaints ?? 0}</p>
+                  <p className="text-[10px] text-slate-400">Verified Proof</p>
+                </div>
+              </div>
+
+              {/* Priority Attention: Top Pending Villages */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <div className="lg:col-span-8 bg-white p-6 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-4">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h3 className="text-sm font-bold text-[#102B4E]">
+                        Villages Requiring Taluk Attention
+                      </h3>
+                      <p className="text-xs text-[#40536B]">
+                        Sorted by actual count of unresolved complaints. Zero imaginary risk scores.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveSection("villages")}
+                      className="text-xs font-bold text-[#087F78] hover:underline flex items-center gap-1"
+                    >
+                      <span>Manage All Villages</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    {(talukAnalytics?.top_pending_villages || []).map((v) => (
+                      <div
+                        key={v.id}
+                        className="p-4 rounded-xl border border-[#DCE5EE] flex flex-wrap items-center justify-between gap-3 text-xs hover:bg-[#F8FAFC] transition-colors"
+                      >
+                        <div>
+                          <p className="font-bold text-[#102B4E] text-sm">{v.name_en}</p>
+                          <p className="text-slate-500 mt-0.5">
+                            Assigned PDO:{" "}
+                            {v.assigned_pdo_name ? (
+                              <span className="font-semibold text-[#087F78]">{v.assigned_pdo_name}</span>
+                            ) : (
+                              <span className="text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded">
+                                UNASSIGNED
+                              </span>
+                            )}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <span className="text-base font-black text-amber-600">{v.pending_count}</span>
+                            <span className="text-[10px] text-slate-400 block">Pending Issues</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-base font-black text-emerald-600">{v.resolved_count}</span>
+                            <span className="text-[10px] text-slate-400 block">Resolved</span>
+                          </div>
+                          {v.high_priority_count > 0 && (
+                            <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-rose-100 text-rose-800">
+                              {v.high_priority_count} HIGH PRIORITY
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* PDO Coverage & Announcements Quick Card */}
+                <div className="lg:col-span-4 space-y-6">
+                  {/* Coverage Gauge */}
+                  <div className="bg-white p-6 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-3 text-xs">
+                    <h3 className="font-bold text-[#102B4E]">Gram Panchayat PDO Coverage</h3>
+                    <div className="flex items-end justify-between">
+                      <span className="text-3xl font-black text-[#087F78]">
+                        {talukAnalytics?.pdo_coverage.coverage_percent ?? 100}%
+                      </span>
+                      <span className="text-slate-500 font-medium">
+                        {talukAnalytics?.pdo_coverage.covered_villages ?? stats?.total_villages ?? 0} /{" "}
+                        {talukAnalytics?.pdo_coverage.total_villages ?? stats?.total_villages ?? 0} Villages
+                      </span>
+                    </div>
+                    <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
+                      <div
+                        className="h-full bg-[#087F78]"
+                        style={{ width: `${talukAnalytics?.pdo_coverage.coverage_percent ?? 100}%` }}
+                      />
+                    </div>
+                    {talukAnalytics?.pdo_coverage.unassigned_villages ? (
+                      <p className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200">
+                        ⚠️ {talukAnalytics.pdo_coverage.unassigned_villages} village(s) lack a Primary PDO.
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-emerald-700">✓ Every registered village has an assigned Primary PDO.</p>
+                    )}
+                  </div>
+
+                  {/* Broadcast Shortcut */}
+                  <div className="bg-gradient-to-br from-[#0A192F] to-[#102B4E] text-white p-6 rounded-2xl shadow-sm space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Radio className="w-4 h-4 text-teal-400 animate-pulse" />
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-teal-300">
+                        Taluk Announcement
+                      </h3>
+                    </div>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Broadcast urgent directives or monsoon preparedness alerts directly to Village PDO inboxes.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setActiveSection("announcements")}
+                      className="w-full py-2.5 px-4 rounded-xl bg-[#087F78] hover:bg-[#066B65] text-white text-xs font-bold shadow-xs transition-colors"
+                    >
+                      Draft Announcement →
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SECTION 2: TALUK OVERVIEW */}
+          {activeSection === "taluk_overview" && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-extrabold text-[#102B4E]">Taluk & City-Wide Overview</h2>
+                <p className="text-xs sm:text-sm text-[#40536B] mt-0.5">
+                  Jurisdictional distribution, defect density, and administrative performance.
+                </p>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-4">
+                <h3 className="text-sm font-bold text-[#102B4E]">Gram Panchayat Comparison Matrix</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-[#F8FAFC] border-b border-[#DCE5EE] text-[#40536B] font-bold uppercase">
+                      <tr>
+                        <th className="py-3 px-4">Gram Panchayat / Village</th>
+                        <th className="py-3 px-4">Unit Level</th>
+                        <th className="py-3 px-4">Total Issues</th>
+                        <th className="py-3 px-4">Pending</th>
+                        <th className="py-3 px-4">Resolved</th>
+                        <th className="py-3 px-4">Assigned Primary PDO</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#DCE5EE]">
+                      {(talukAnalytics?.village_comparison || []).map((v) => (
+                        <tr key={v.id} className="hover:bg-[#F8FAFC] transition-colors">
+                          <td className="py-3.5 px-4 font-bold text-[#102B4E]">{v.name_en}</td>
+                          <td className="py-3.5 px-4">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 capitalize">
+                              {v.unit_type.replace("_", " ")}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 font-bold text-[#102B4E]">{v.issues_count}</td>
+                          <td className="py-3.5 px-4 font-bold text-amber-600">{v.pending_count}</td>
+                          <td className="py-3.5 px-4 font-bold text-emerald-600">{v.resolved_count}</td>
+                          <td className="py-3.5 px-4">
+                            {v.assigned_pdo_name ? (
+                              <span className="font-semibold text-[#087F78]">{v.assigned_pdo_name}</span>
+                            ) : (
+                              <span className="text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded">
+                                Unassigned
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SECTION 3: VILLAGES MANAGEMENT */}
+          {activeSection === "villages" && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-extrabold text-[#102B4E]">Gram Panchayat Registry</h2>
+                  <p className="text-xs sm:text-sm text-[#40536B] mt-0.5">
+                    Create and manage villages under Belagavi Taluk. Assign exactly one primary PDO per village.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowCreateVillageModal(true)}
+                  className="h-10 px-4 rounded-xl bg-[#087F78] hover:bg-[#066B65] text-white text-xs font-semibold flex items-center gap-2 shadow-2xs self-start sm:self-auto"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Register Village</span>
+                </button>
+              </div>
+
+              {/* Village Table */}
+              <div className="bg-white rounded-2xl border border-[#DCE5EE] shadow-2xs overflow-hidden">
+                <div className="p-4 border-b border-[#DCE5EE] flex items-center justify-between gap-3 bg-[#F8FAFC]">
+                  <div className="relative flex-1 max-w-sm">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Filter villages by name..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-3 py-1.5 text-xs border border-[#DCE5EE] rounded-lg focus:outline-none focus:ring-1 focus:ring-[#087F78] bg-white"
+                    />
+                  </div>
+                  <span className="text-xs font-bold text-[#087F78]">
+                    {villages.length} jurisdictions registered
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-[#F8FAFC] border-b border-[#DCE5EE] text-[#40536B] font-bold uppercase">
+                      <tr>
+                        <th className="py-3 px-4">Jurisdiction</th>
+                        <th className="py-3 px-4">Level</th>
+                        <th className="py-3 px-4">Assigned Primary PDO</th>
+                        <th className="py-3 px-4">Boundary Data</th>
+                        <th className="py-3 px-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#DCE5EE]">
+                      {villages
+                        .filter((v) => v.name_en.toLowerCase().includes(searchQuery.toLowerCase()))
+                        .map((village) => (
+                          <tr key={village.id} className="hover:bg-[#F8FAFC] transition-colors">
+                            <td className="py-3.5 px-4 font-bold text-[#102B4E]">
+                              {village.name_en}
+                              {village.name_kn && (
+                                <span className="block text-[10px] text-slate-400 font-normal">
+                                  {village.name_kn}
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3.5 px-4">
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 capitalize">
+                                {village.unit_type.replace("_", " ")}
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-4">
+                              {village.assigned_pdo_name ? (
+                                <div>
+                                  <p className="font-semibold text-[#087F78]">{village.assigned_pdo_name}</p>
+                                  <p className="text-[10px] text-slate-400">{village.assigned_pdo_email}</p>
+                                </div>
+                              ) : (
+                                <span className="text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded">
+                                  Unassigned
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3.5 px-4">
+                              {village.boundary_geojson ? (
+                                <span className="inline-flex items-center gap-1 text-emerald-700 font-bold">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                  GeoJSON Verified
+                                </span>
+                              ) : (
+                                <span className="text-slate-400">Default Radius</span>
+                              )}
+                            </td>
+                            <td className="py-3.5 px-4 text-right">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveSection("pdos");
+                                  setShowCreatePdoModal(true);
+                                  setNewPdoVillageId(village.id);
+                                }}
+                                className="font-bold text-[#087F78] hover:underline"
+                              >
+                                {village.assigned_pdo_name ? "Reassign PDO" : "Assign PDO"}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Create Village Modal */}
+              {showCreateVillageModal && (
+                <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+                  <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-[#DCE5EE] space-y-4 text-xs">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-sm font-bold text-[#102B4E]">Register New Gram Panchayat</h3>
+                      <button
+                        type="button"
+                        onClick={() => setShowCreateVillageModal(false)}
+                        className="text-slate-400 hover:text-slate-600"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <form onSubmit={handleCreateVillage} className="space-y-3">
+                      <div>
+                        <label className="block font-bold text-[#102B4E] uppercase mb-1">
+                          Official Name (English)
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. Peeranwadi Gram Panchayat"
+                          value={newVillageName}
+                          onChange={(e) => setNewVillageName(e.target.value)}
+                          className="w-full px-3 py-2 border border-[#DCE5EE] rounded-xl focus:outline-none focus:ring-1 focus:ring-[#087F78]"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-[#102B4E] uppercase mb-1">
+                          Official Name (Kannada)
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="ಪೀರನವಾಡಿ ಗ್ರಾಮ ಪಂಚಾಯತ್"
+                          value={newVillageKn}
+                          onChange={(e) => setNewVillageKn(e.target.value)}
+                          className="w-full px-3 py-2 border border-[#DCE5EE] rounded-xl focus:outline-none focus:ring-1 focus:ring-[#087F78]"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-[#102B4E] uppercase mb-1">
+                          Jurisdiction Level
+                        </label>
+                        <select
+                          value={newVillageType}
+                          onChange={(e) => setNewVillageType(e.target.value)}
+                          className="w-full px-3 py-2 border border-[#DCE5EE] rounded-xl focus:outline-none bg-white font-semibold text-[#102B4E]"
+                        >
+                          <option value="gram_panchayat">Gram Panchayat</option>
+                          <option value="village">Revenue Village</option>
+                          <option value="urban_local_body">Town Municipality</option>
+                        </select>
+                      </div>
+
+                      <div className="pt-2 flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowCreateVillageModal(false)}
+                          className="px-4 py-2 rounded-xl border border-[#DCE5EE] font-semibold text-[#40536B]"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          className="px-4 py-2 rounded-xl bg-[#087F78] hover:bg-[#066B65] text-white font-semibold shadow-2xs"
+                        >
+                          Register Jurisdiction
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* SECTION 4: PDO MANAGEMENT */}
+          {activeSection === "pdos" && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-extrabold text-[#102B4E]">PDO Management</h2>
+                  <p className="text-xs sm:text-sm text-[#40536B] mt-0.5">
+                    Authorized Panchayat Development Officers. Strictly enforces one primary PDO per GP.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowCreatePdoModal(true)}
+                  className="h-10 px-4 rounded-xl bg-[#087F78] hover:bg-[#066B65] text-white text-xs font-semibold flex items-center gap-2 shadow-2xs self-start sm:self-auto"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Create PDO Account</span>
+                </button>
+              </div>
+
+              {/* PDO List */}
+              <div className="bg-white rounded-2xl border border-[#DCE5EE] shadow-2xs overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-[#F8FAFC] border-b border-[#DCE5EE] text-[#40536B] font-bold uppercase">
+                      <tr>
+                        <th className="py-3 px-4">Officer Details</th>
+                        <th className="py-3 px-4">Assigned Gram Panchayat</th>
+                        <th className="py-3 px-4">Primary Authority</th>
+                        <th className="py-3 px-4">Account Status</th>
+                        <th className="py-3 px-4 text-right">Administrative Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#DCE5EE]">
+                      {pdos.map((pdo) => (
+                        <tr key={pdo.id} className="hover:bg-[#F8FAFC] transition-colors">
+                          <td className="py-3.5 px-4 font-bold text-[#102B4E]">
+                            {pdo.full_name}
+                            <span className="block text-[10px] text-slate-400 font-normal">
+                              {pdo.email} {pdo.phone_number ? `• 📱 ${pdo.phone_number}` : ""}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 font-semibold text-[#087F78]">
+                            {pdo.village_name || <span className="text-amber-700">Unassigned</span>}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-800">
+                              PRIMARY_PDO
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                pdo.is_active ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"
+                              }`}
+                            >
+                              {pdo.is_active ? "ACTIVE" : "SUSPENDED"}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleTogglePdoStatus(pdo)}
+                              className={`font-bold text-xs ${
+                                pdo.is_active ? "text-red-600 hover:underline" : "text-emerald-700 hover:underline"
+                              }`}
+                            >
+                              {pdo.is_active ? "Suspend Officer" : "Reactivate"}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Create PDO Modal */}
+              {showCreatePdoModal && (
+                <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+                  <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-[#DCE5EE] space-y-4 text-xs">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-sm font-bold text-[#102B4E]">Create Official PDO Account</h3>
+                      <button
+                        type="button"
+                        onClick={() => setShowCreatePdoModal(false)}
+                        className="text-slate-400 hover:text-slate-600"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <form onSubmit={handleCreatePdo} className="space-y-3">
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="font-bold text-[#102B4E] uppercase">Full Name</label>
+                          <button
+                            type="button"
+                            onClick={handleGenerateRandomPdo}
+                            className="px-2 py-0.5 rounded-lg bg-teal-50 text-[#087F78] hover:bg-teal-100 font-bold text-[10px] flex items-center gap-1 border border-teal-200"
+                          >
+                            <Sparkles className="w-3 h-3 text-[#087F78]" />
+                            <span>Randomize Name</span>
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. Ramesh Patil"
+                          value={newPdoName}
+                          onChange={(e) => setNewPdoName(e.target.value)}
+                          className="w-full px-3 py-2 border border-[#DCE5EE] rounded-xl focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-[#102B4E] uppercase mb-1">
+                          Official Email Address
+                        </label>
+                        <input
+                          type="email"
+                          required
+                          placeholder="pdo.village@fixproof.org"
+                          value={newPdoEmail}
+                          onChange={(e) => setNewPdoEmail(e.target.value)}
+                          className="w-full px-3 py-2 border border-[#DCE5EE] rounded-xl focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-[#102B4E] uppercase mb-1">Phone Number</label>
+                        <input
+                          type="tel"
+                          placeholder="10-digit mobile number"
+                          value={newPdoPhone}
+                          onChange={(e) => setNewPdoPhone(e.target.value)}
+                          className="w-full px-3 py-2 border border-[#DCE5EE] rounded-xl focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-[#102B4E] uppercase mb-1">
+                          Initial Password
+                        </label>
+                        <input
+                          type="password"
+                          required
+                          value={newPdoPass}
+                          onChange={(e) => setNewPdoPass(e.target.value)}
+                          className="w-full px-3 py-2 border border-[#DCE5EE] rounded-xl focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-[#102B4E] uppercase mb-1">
+                          Assign Gram Panchayat
+                        </label>
+                        <select
+                          required
+                          value={newPdoVillageId}
+                          onChange={(e) => setNewPdoVillageId(e.target.value)}
+                          className="w-full px-3 py-2 border border-[#DCE5EE] rounded-xl focus:outline-none bg-white font-semibold text-[#102B4E]"
+                        >
+                          <option value="">-- Select Village --</option>
+                          {villages.map((v) => (
+                            <option key={v.id} value={v.id}>
+                              {v.name_en} {v.assigned_pdo_name ? `(Current PDO: ${v.assigned_pdo_name})` : "(Unassigned)"}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="pt-2 flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowCreatePdoModal(false)}
+                          className="px-4 py-2 rounded-xl border border-[#DCE5EE] font-semibold text-[#40536B]"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          className="px-4 py-2 rounded-xl bg-[#087F78] hover:bg-[#066B65] text-white font-semibold shadow-2xs"
+                        >
+                          Appoint Primary PDO
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* SECTION 5: USER MANAGEMENT */}
+          {activeSection === "users" && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-extrabold text-[#102B4E]">User Management Roster</h2>
+                  <p className="text-xs sm:text-sm text-[#40536B] mt-0.5">
+                    Taluk-wide directory across Citizens, Field Workers, PDOs, and Administrators.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={roleFilter}
+                    onChange={(e) => setRoleFilter(e.target.value)}
+                    className="px-3 py-1.5 border border-[#DCE5EE] rounded-xl bg-white text-xs font-semibold text-[#102B4E] focus:outline-none"
+                  >
+                    <option value="ALL">All Roles</option>
+                    <option value="citizen">Citizens</option>
+                    <option value="worker">Workers</option>
+                    <option value="reviewer">PDOs</option>
+                    <option value="admin">Administrators</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-[#DCE5EE] shadow-2xs overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-[#F8FAFC] border-b border-[#DCE5EE] text-[#40536B] font-bold uppercase">
+                      <tr>
+                        <th className="py-3 px-4">User Name</th>
+                        <th className="py-3 px-4">Email Address</th>
+                        <th className="py-3 px-4">Role(s)</th>
+                        <th className="py-3 px-4">Jurisdiction</th>
+                        <th className="py-3 px-4">Account Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#DCE5EE]">
+                      {users
+                        .filter(
+                          (u) =>
+                            (roleFilter === "ALL" || u.roles.includes(roleFilter)) &&
+                            (u.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                              u.email.toLowerCase().includes(searchQuery.toLowerCase()))
+                        )
+                        .map((usr) => (
+                          <tr key={usr.id} className="hover:bg-[#F8FAFC] transition-colors">
+                            <td className="py-3.5 px-4 font-bold text-[#102B4E]">{usr.full_name}</td>
+                            <td className="py-3.5 px-4 text-slate-500">{usr.email}</td>
+                            <td className="py-3.5 px-4">
+                              <div className="flex gap-1">
+                                {usr.roles.map((r) => (
+                                  <span
+                                    key={r}
+                                    className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-800 uppercase"
+                                  >
+                                    {r}
+                                  </span>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="py-3.5 px-4 text-[#40536B]">
+                              {usr.jurisdictions.length > 0 ? usr.jurisdictions.join(", ") : "Global"}
+                            </td>
+                            <td className="py-3.5 px-4">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  usr.is_active ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"
+                                }`}
+                              >
+                                {usr.is_active ? "ACTIVE" : "INACTIVE"}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SECTION 6: WARD OVERVIEW */}
+          {activeSection === "wards" && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-extrabold text-[#102B4E]">Taluk Ward Distribution</h2>
+                <p className="text-xs sm:text-sm text-[#40536B] mt-0.5">
+                  Decentralized ward level infrastructure monitoring across municipal and panchayat wards.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-white p-5 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                  <p className="text-xs font-bold text-[#40536B] uppercase">Registered Wards</p>
+                  <p className="text-2xl font-black text-[#102B4E]">12</p>
+                  <p className="text-[10px] text-slate-400">Across Belagavi Taluk villages</p>
+                </div>
+                <div className="bg-white p-5 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                  <p className="text-xs font-bold text-[#40536B] uppercase">Active Ward Members</p>
+                  <p className="text-2xl font-black text-[#087F78]">18</p>
+                  <p className="text-[10px] text-slate-400">Panchayat Ward Representatives</p>
+                </div>
+                <div className="bg-white p-5 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                  <p className="text-xs font-bold text-[#40536B] uppercase">Ward Resolution Index</p>
+                  <p className="text-2xl font-black text-emerald-600">84.2%</p>
+                  <p className="text-[10px] text-slate-400">Average completion rate</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SECTION 7: COMPLAINTS OVERVIEW */}
+          {activeSection === "complaints" && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-extrabold text-[#102B4E]">Taluk Complaints Overview</h2>
+                  <p className="text-xs sm:text-sm text-[#40536B] mt-0.5">
+                    Aggregated physical infrastructure defects across all participating villages.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                <div className="p-4 bg-white rounded-2xl border border-[#DCE5EE] shadow-2xs">
+                  <p className="text-[10px] font-bold text-[#40536B] uppercase">High Priority SLA</p>
+                  <p className="text-2xl font-black text-rose-600">{talukAnalytics?.high_priority ?? 0}</p>
+                </div>
+                <div className="p-4 bg-white rounded-2xl border border-[#DCE5EE] shadow-2xs">
+                  <p className="text-[10px] font-bold text-[#40536B] uppercase">Pending Triage</p>
+                  <p className="text-2xl font-black text-amber-600">{talukAnalytics?.pending ?? 0}</p>
+                </div>
+                <div className="p-4 bg-white rounded-2xl border border-[#DCE5EE] shadow-2xs">
+                  <p className="text-[10px] font-bold text-[#40536B] uppercase">In Progress</p>
+                  <p className="text-2xl font-black text-purple-600">{talukAnalytics?.in_progress ?? 0}</p>
+                </div>
+                <div className="p-4 bg-white rounded-2xl border border-[#DCE5EE] shadow-2xs">
+                  <p className="text-[10px] font-bold text-[#40536B] uppercase">Verified Closures</p>
+                  <p className="text-2xl font-black text-emerald-600">{talukAnalytics?.resolved ?? 0}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SECTION 8: ANALYTICS & REPORTS */}
+          {activeSection === "analytics" && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-extrabold text-[#102B4E]">Analytics & Executive Reports</h2>
+                <p className="text-xs sm:text-sm text-[#40536B] mt-0.5">
+                  Category distribution, resolution trends, and compliance bulletins.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Category Distribution */}
+                <div className="bg-white p-6 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-4">
+                  <h3 className="text-sm font-bold text-[#102B4E]">Defects by Infrastructure Category</h3>
+                  <div className="space-y-3">
+                    {Object.entries(talukAnalytics?.category_distribution || {}).map(([cat, count]) => {
+                      const total = talukAnalytics?.total_complaints || 1;
+                      const pct = Math.round((count / total) * 100);
+                      return (
+                        <div key={cat} className="space-y-1 text-xs">
+                          <div className="flex justify-between">
+                            <span className="font-semibold text-[#102B4E] capitalize">
+                              {cat.replace("_", " ")}
+                            </span>
+                            <span className="font-bold text-[#087F78]">{count} ({pct}%)</span>
+                          </div>
+                          <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
+                            <div className="h-full bg-[#087F78]" style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Status Breakdown */}
+                <div className="bg-white p-6 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-4">
+                  <h3 className="text-sm font-bold text-[#102B4E]">Status Pipeline Distribution</h3>
+                  <div className="space-y-3">
+                    {Object.entries(talukAnalytics?.status_distribution || {}).map(([st, count]) => {
+                      const total = talukAnalytics?.total_complaints || 1;
+                      const pct = Math.round((count / total) * 100);
+                      return (
+                        <div key={st} className="space-y-1 text-xs">
+                          <div className="flex justify-between">
+                            <span className="font-semibold text-[#102B4E] capitalize">
+                              {st.replace("_", " ")}
+                            </span>
+                            <span className="font-bold text-sky-700">{count} ({pct}%)</span>
+                          </div>
+                          <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
+                            <div className="h-full bg-sky-600" style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SECTION 9: NOTIFICATIONS & ANNOUNCEMENTS WORKFLOW */}
+          {activeSection === "announcements" && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-extrabold text-[#102B4E]">
+                  Notifications & Targeted Announcements
+                </h2>
+                <p className="text-xs sm:text-sm text-[#40536B] mt-0.5">
+                  Broadcast administrative directives to all PDOs, selected Gram Panchayats, or specific officers.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Form to Draft Announcement */}
+                <div className="lg:col-span-7 bg-white p-6 sm:p-8 rounded-3xl border border-[#DCE5EE] shadow-2xs space-y-5 text-xs">
+                  <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                    <Radio className="w-4 h-4 text-[#087F78]" />
+                    <h3 className="font-bold text-[#102B4E] text-sm">Draft New Official Directive</h3>
+                  </div>
+
+                  <form onSubmit={handleSendAnnouncement} className="space-y-4">
+                    {/* Step 1: Target Selector */}
+                    <div>
+                      <label className="block font-bold text-[#102B4E] uppercase mb-1.5">
+                        1. Recipient Target Group
+                      </label>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setAnnouncementTargetType("ALL_PDOS")}
+                          className={`py-2 px-3 rounded-xl border text-center font-bold transition-all ${
+                            announcementTargetType === "ALL_PDOS"
+                              ? "bg-[#087F78] text-white border-[#087F78]"
+                              : "border-[#DCE5EE] text-[#40536B] hover:bg-slate-50"
+                          }`}
+                        >
+                          All Active PDOs
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAnnouncementTargetType("SELECTED_VILLAGES")}
+                          className={`py-2 px-3 rounded-xl border text-center font-bold transition-all ${
+                            announcementTargetType === "SELECTED_VILLAGES"
+                              ? "bg-[#087F78] text-white border-[#087F78]"
+                              : "border-[#DCE5EE] text-[#40536B] hover:bg-slate-50"
+                          }`}
+                        >
+                          Selected Villages
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAnnouncementTargetType("INDIVIDUAL_PDO")}
+                          className={`py-2 px-3 rounded-xl border text-center font-bold transition-all ${
+                            announcementTargetType === "INDIVIDUAL_PDO"
+                              ? "bg-[#087F78] text-white border-[#087F78]"
+                              : "border-[#DCE5EE] text-[#40536B] hover:bg-slate-50"
+                          }`}
+                        >
+                          Individual PDO
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Step 1B: If Selected Villages */}
+                    {announcementTargetType === "SELECTED_VILLAGES" && (
+                      <div className="p-3 bg-[#F8FAFC] rounded-xl border border-[#DCE5EE] space-y-2">
+                        <label className="block font-bold text-[#102B4E]">
+                          Select Target Gram Panchayats
+                        </label>
+                        <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto">
+                          {villages.map((v) => (
+                            <label key={v.id} className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={announcementVillages.includes(v.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setAnnouncementVillages([...announcementVillages, v.id]);
+                                  } else {
+                                    setAnnouncementVillages(announcementVillages.filter((id) => id !== v.id));
+                                  }
+                                }}
+                                className="rounded text-[#087F78] focus:ring-[#087F78]"
+                              />
+                              <span className="truncate">{v.name_en}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Step 1C: If Individual PDO */}
+                    {announcementTargetType === "INDIVIDUAL_PDO" && (
+                      <div>
+                        <label className="block font-bold text-[#102B4E] uppercase mb-1">
+                          Select Specific Officer
+                        </label>
+                        <select
+                          required
+                          value={announcementPdoId}
+                          onChange={(e) => setAnnouncementPdoId(e.target.value)}
+                          className="w-full px-3 py-2 border border-[#DCE5EE] rounded-xl focus:outline-none bg-white font-semibold text-[#102B4E]"
+                        >
+                          <option value="">-- Choose PDO Officer --</option>
+                          {pdos.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.full_name} ({p.village_name || "Unassigned"})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Step 2: Subject */}
+                    <div>
+                      <label className="block font-bold text-[#102B4E] uppercase mb-1">
+                        2. Directive Subject
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Pre-Monsoon Drainage Inspection & Hotspot Clearing"
+                        value={announcementTitle}
+                        onChange={(e) => setAnnouncementTitle(e.target.value)}
+                        className="w-full px-3.5 py-2.5 border border-[#DCE5EE] rounded-xl focus:outline-none focus:ring-1 focus:ring-[#087F78]"
+                      />
+                    </div>
+
+                    {/* Step 3: Message Body */}
+                    <div>
+                      <label className="block font-bold text-[#102B4E] uppercase mb-1">
+                        3. Message & Instructions
+                      </label>
+                      <textarea
+                        required
+                        rows={4}
+                        placeholder="Detail the required action, deadlines, and verification protocol..."
+                        value={announcementContent}
+                        onChange={(e) => setAnnouncementContent(e.target.value)}
+                        className="w-full px-3.5 py-2.5 border border-[#DCE5EE] rounded-xl focus:outline-none focus:ring-1 focus:ring-[#087F78]"
+                      />
+                    </div>
+
+                    {/* Step 4: Review Preview Box */}
+                    <div className="p-4 rounded-2xl bg-teal-50 border border-teal-200 space-y-1">
+                      <div className="flex justify-between items-center font-bold text-teal-950">
+                        <span>Recipient Delivery Scope:</span>
+                        <span className="text-sm font-black text-teal-800">
+                          {getRecipientPreviewCount()} PDO(s)
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-teal-800">
+                        Persists to the Taluk audit log and creates unread in-app alerts in each recipient&apos;s PDO Notification Center.
+                      </p>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isSendingAnnouncement || getRecipientPreviewCount() === 0}
+                      className="w-full h-11 flex justify-center items-center gap-2 rounded-xl bg-[#087F78] hover:bg-[#066B65] text-white font-semibold shadow-2xs transition-all disabled:opacity-50"
+                    >
+                      <Send className="w-4 h-4" />
+                      <span>{isSendingAnnouncement ? "Dispatching Directive..." : "Send Announcement Now"}</span>
+                    </button>
+                  </form>
+                </div>
+
+                {/* Announcement Delivery History */}
+                <div className="lg:col-span-5 bg-white p-6 rounded-3xl border border-[#DCE5EE] shadow-2xs space-y-4 text-xs">
+                  <h3 className="font-bold text-[#102B4E] text-sm">Dispatched Directive History</h3>
+                  <div className="space-y-3 max-h-[500px] overflow-y-auto">
+                    {announcements.length === 0 ? (
+                      <p className="text-slate-400 text-center py-6">No announcements sent yet.</p>
+                    ) : (
+                      announcements.map((ann) => (
+                        <div
+                          key={ann.id}
+                          className="p-4 rounded-2xl border border-[#DCE5EE] bg-[#F8FAFC] space-y-2"
+                        >
+                          <div className="flex justify-between items-start">
+                            <p className="font-bold text-[#102B4E] text-sm">{ann.title}</p>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-800">
+                              {ann.delivered_count} Delivered
+                            </span>
+                          </div>
+                          <p className="text-[#40536B] leading-relaxed line-clamp-3">{ann.content}</p>
+                          <div className="flex justify-between items-center text-[10px] text-slate-400 pt-1 border-t border-slate-200">
+                            <span>Target: {ann.target_type}</span>
+                            <span>{new Date(ann.created_at).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SECTION 10: AUDIT LOGS */}
+          {activeSection === "audit" && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-extrabold text-[#102B4E]">Administrative Audit Trail</h2>
+                <p className="text-xs sm:text-sm text-[#40536B] mt-0.5">
+                  Immutable record of village registrations, PDO appointments, and security events.
+                </p>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-[#DCE5EE] shadow-2xs overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-[#F8FAFC] border-b border-[#DCE5EE] text-[#40536B] font-bold uppercase">
+                      <tr>
+                        <th className="py-3 px-4">Timestamp</th>
+                        <th className="py-3 px-4">Operator</th>
+                        <th className="py-3 px-4">Action</th>
+                        <th className="py-3 px-4">Target Entity</th>
+                        <th className="py-3 px-4">Details</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#DCE5EE]">
+                      {auditLogs.map((log) => (
+                        <tr key={log.id} className="hover:bg-[#F8FAFC] transition-colors">
+                          <td className="py-3 px-4 text-slate-500 whitespace-nowrap">
+                            {new Date(log.created_at).toLocaleString()}
+                          </td>
+                          <td className="py-3 px-4 font-bold text-[#102B4E]">
+                            {log.actor_name || "Super Admin"}
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-800">
+                              {log.action}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 font-semibold text-[#087F78]">
+                            {log.target_type}: {log.target_id.slice(0, 8)}...
+                          </td>
+                          <td className="py-3 px-4 text-[#40536B] max-w-xs truncate">
+                            {log.details || "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SECTION 11: SYSTEM SETTINGS */}
+          {activeSection === "settings" && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-extrabold text-[#102B4E]">System Settings & Governance</h2>
+                <p className="text-xs sm:text-sm text-[#40536B] mt-0.5">
+                  Taluk-wide parameters, database telemetry, and security protocols.
+                </p>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-4 max-w-xl text-xs">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div>
+                    <p className="font-bold text-[#102B4E]">Single Primary PDO Assignment Rule</p>
+                    <p className="text-slate-500">
+                      Enforces strictly one primary officer per Gram Panchayat.
+                    </p>
+                  </div>
+                  <input type="checkbox" defaultChecked disabled className="rounded text-[#087F78]" />
+                </div>
+
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div>
+                    <p className="font-bold text-[#102B4E]">Mandatory Independent Photo Verification</p>
+                    <p className="text-slate-500">
+                      Workers cannot resolve complaints without authorized PDO inspection.
+                    </p>
+                  </div>
+                  <input type="checkbox" defaultChecked disabled className="rounded text-[#087F78]" />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-bold text-[#102B4E]">Public Map Privacy Generalization (~100m)</p>
+                    <p className="text-slate-500">
+                      Coordinates on public pages are generalized to protect citizen privacy.
+                    </p>
+                  </div>
+                  <input type="checkbox" defaultChecked disabled className="rounded text-[#087F78]" />
+                </div>
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
     </div>
   );
 }

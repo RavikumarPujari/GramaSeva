@@ -2,7 +2,7 @@ import math
 import sys
 import os
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -25,6 +25,8 @@ from app.models.issues import (
     DuplicateCandidate,
     Asset,
     RecurrenceCandidate,
+    WorkCompletion,
+    AIBeforeAfterAnalysis,
 )
 from app.auth.dependencies import (
     get_current_user,
@@ -132,6 +134,25 @@ class StaffComplaintItem(BaseModel):
     created_at: datetime
     resolved_at: Optional[datetime] = None
     photos_count: int = 0
+    estimated_cost: Optional[float] = None
+    proposed_cost: Optional[float] = None
+    materials_cost: Optional[float] = None
+    labour_cost: Optional[float] = None
+    other_expenses_cost: Optional[float] = None
+    verified_cost: Optional[float] = None
+    cost_status: Optional[str] = None
+    work_completed_at: Optional[datetime] = None
+    work_completion_description: Optional[str] = None
+    work_performed: Optional[str] = None
+    materials_used: Optional[str] = None
+    labour_details: Optional[str] = None
+    cost_verification_remarks: Optional[str] = None
+    ai_analysis: Optional[Dict[str, Any]] = None
+    before_photo_ids: List[str] = []
+    after_photo_ids: List[str] = []
+    citizen_name: Optional[str] = None
+    citizen_phone: Optional[str] = None
+    citizen_email: Optional[str] = None
 
 
 @router.get("/all-complaints", response_model=List[StaffComplaintItem])
@@ -183,6 +204,40 @@ def get_all_complaints(
         worker_name = issue.assigned_worker.full_name if issue.assigned_worker else None
         dept_name = issue.department.name_en if issue.department else None
 
+        # Fetch before and after photos
+        before_media = (
+            db.query(MediaAsset.id)
+            .filter(MediaAsset.issue_id == issue.id, MediaAsset.evidence_role == "CITIZEN_BEFORE")
+            .all()
+        )
+        after_media = (
+            db.query(MediaAsset.id)
+            .filter(MediaAsset.issue_id == issue.id, MediaAsset.evidence_role == "WORKER_AFTER")
+            .all()
+        )
+
+        # Fetch latest AI analysis if available
+        ai_rec = (
+            db.query(AIBeforeAfterAnalysis)
+            .filter(AIBeforeAfterAnalysis.issue_id == issue.id)
+            .order_by(AIBeforeAfterAnalysis.created_at.desc())
+            .first()
+        )
+        ai_data = None
+        if ai_rec:
+            ai_data = {
+                "visible_change": ai_rec.visible_change,
+                "visual_consistency_score": ai_rec.visual_consistency_score,
+                "difference_summary": ai_rec.difference_summary,
+                "advisory_decision_suggestion": ai_rec.advisory_decision_suggestion,
+                "possible_mismatch": ai_rec.possible_mismatch,
+                "insufficient_evidence": ai_rec.insufficient_evidence,
+            }
+
+        citizen_name = sub.reporter.full_name if (sub and sub.reporter) else None
+        citizen_phone = sub.reporter.phone_number if (sub and sub.reporter) else None
+        citizen_email = sub.reporter.email if (sub and sub.reporter) else None
+
         results.append(
             StaffComplaintItem(
                 id=issue.id,
@@ -206,6 +261,25 @@ def get_all_complaints(
                 created_at=issue.created_at,
                 resolved_at=issue.resolved_at,
                 photos_count=photos_count,
+                estimated_cost=issue.estimated_cost,
+                proposed_cost=issue.proposed_cost,
+                materials_cost=issue.materials_cost,
+                labour_cost=issue.labour_cost,
+                other_expenses_cost=issue.other_expenses_cost,
+                verified_cost=issue.verified_cost,
+                cost_status=issue.cost_status,
+                work_completed_at=issue.work_completed_at,
+                work_completion_description=issue.work_completion_description,
+                work_performed=issue.work_performed,
+                materials_used=issue.materials_used,
+                labour_details=issue.labour_details,
+                cost_verification_remarks=issue.cost_verification_remarks,
+                ai_analysis=ai_data,
+                before_photo_ids=[m[0] for m in before_media],
+                after_photo_ids=[m[0] for m in after_media],
+                citizen_name=citizen_name,
+                citizen_phone=citizen_phone,
+                citizen_email=citizen_email,
             )
         )
 
@@ -577,6 +651,25 @@ class StaffComplaintItem(BaseModel):
     created_at: datetime
     resolved_at: Optional[datetime] = None
     photos_count: int = 0
+    estimated_cost: Optional[float] = None
+    proposed_cost: Optional[float] = None
+    materials_cost: Optional[float] = None
+    labour_cost: Optional[float] = None
+    other_expenses_cost: Optional[float] = None
+    verified_cost: Optional[float] = None
+    cost_status: Optional[str] = None
+    work_completed_at: Optional[datetime] = None
+    work_completion_description: Optional[str] = None
+    work_performed: Optional[str] = None
+    materials_used: Optional[str] = None
+    labour_details: Optional[str] = None
+    cost_verification_remarks: Optional[str] = None
+    ai_analysis: Optional[Dict[str, Any]] = None
+    before_photo_ids: List[str] = []
+    after_photo_ids: List[str] = []
+    citizen_name: Optional[str] = None
+    citizen_phone: Optional[str] = None
+    citizen_email: Optional[str] = None
 
 
 @router.get("/all-complaints", response_model=List[StaffComplaintItem])
@@ -628,6 +721,40 @@ def get_all_complaints(
         worker_name = issue.assigned_worker.full_name if issue.assigned_worker else None
         dept_name = issue.department.name_en if issue.department else None
 
+        # Fetch before and after photos
+        before_media = (
+            db.query(MediaAsset.id)
+            .filter(MediaAsset.issue_id == issue.id, MediaAsset.evidence_role == "CITIZEN_BEFORE")
+            .all()
+        )
+        after_media = (
+            db.query(MediaAsset.id)
+            .filter(MediaAsset.issue_id == issue.id, MediaAsset.evidence_role == "WORKER_AFTER")
+            .all()
+        )
+
+        # Fetch latest AI analysis if available
+        ai_rec = (
+            db.query(AIBeforeAfterAnalysis)
+            .filter(AIBeforeAfterAnalysis.issue_id == issue.id)
+            .order_by(AIBeforeAfterAnalysis.created_at.desc())
+            .first()
+        )
+        ai_data = None
+        if ai_rec:
+            ai_data = {
+                "visible_change": ai_rec.visible_change,
+                "visual_consistency_score": ai_rec.visual_consistency_score,
+                "difference_summary": ai_rec.difference_summary,
+                "advisory_decision_suggestion": ai_rec.advisory_decision_suggestion,
+                "possible_mismatch": ai_rec.possible_mismatch,
+                "insufficient_evidence": ai_rec.insufficient_evidence,
+            }
+
+        citizen_name = sub.reporter.full_name if (sub and sub.reporter) else None
+        citizen_phone = sub.reporter.phone_number if (sub and sub.reporter) else None
+        citizen_email = sub.reporter.email if (sub and sub.reporter) else None
+
         results.append(
             StaffComplaintItem(
                 id=issue.id,
@@ -651,6 +778,25 @@ def get_all_complaints(
                 created_at=issue.created_at,
                 resolved_at=issue.resolved_at,
                 photos_count=photos_count,
+                estimated_cost=issue.estimated_cost,
+                proposed_cost=issue.proposed_cost,
+                materials_cost=issue.materials_cost,
+                labour_cost=issue.labour_cost,
+                other_expenses_cost=issue.other_expenses_cost,
+                verified_cost=issue.verified_cost,
+                cost_status=issue.cost_status,
+                work_completed_at=issue.work_completed_at,
+                work_completion_description=issue.work_completion_description,
+                work_performed=issue.work_performed,
+                materials_used=issue.materials_used,
+                labour_details=issue.labour_details,
+                cost_verification_remarks=issue.cost_verification_remarks,
+                ai_analysis=ai_data,
+                before_photo_ids=[m[0] for m in before_media],
+                after_photo_ids=[m[0] for m in after_media],
+                citizen_name=citizen_name,
+                citizen_phone=citizen_phone,
+                citizen_email=citizen_email,
             )
         )
 
@@ -694,11 +840,41 @@ def review_resolution(
         issue.reviewed_by_id = current_reviewer.id
         issue.resolution_review_notes = req.explanation
 
+        # Approved final expenditure
+        if req.verified_cost is not None and req.verified_cost >= 0:
+            issue.verified_cost = req.verified_cost
+        elif issue.proposed_cost is not None:
+            issue.verified_cost = issue.proposed_cost
+
+        issue.cost_status = "VERIFIED"
+        issue.cost_verification_remarks = req.cost_remarks or req.explanation
+
+        # Make safe verified before-and-after photographic evidence public
+        db.query(MediaAsset).filter(
+            MediaAsset.issue_id == issue.id,
+            MediaAsset.is_quarantined == False,
+        ).update({"is_public_approved": True}, synchronize_session=False)
+
+        # Update latest work completion
+        latest_comp = (
+            db.query(WorkCompletion)
+            .filter(WorkCompletion.issue_id == issue.id)
+            .order_by(WorkCompletion.submission_number.desc())
+            .first()
+        )
+        if latest_comp:
+            latest_comp.status = "APPROVED"
+            latest_comp.verified_cost = issue.verified_cost
+            latest_comp.verified_by_id = current_reviewer.id
+            latest_comp.verified_at = datetime.now(timezone.utc)
+            latest_comp.pdo_remarks = req.explanation
+
+        cost_note = f" (Verified expenditure: ₹{issue.verified_cost:,.2f})" if issue.verified_cost is not None else ""
         review = RepairReview(
             issue_id=issue.id,
             reviewer_profile_id=current_reviewer.id,
             decision="APPROVED",
-            explanation=req.explanation,
+            explanation=f"{req.explanation}{cost_note}",
         )
         db.add(review)
 
@@ -707,19 +883,31 @@ def review_resolution(
             actor_profile_id=current_reviewer.id,
             previous_status=prev_status,
             next_status="RESOLVED",
-            reason=f"Repair independently verified and approved by {current_reviewer.full_name}. Note: {req.explanation}",
+            reason=f"Repair and expenditure independently verified by {current_reviewer.full_name}. Note: {req.explanation}{cost_note}",
         )
         db.add(event)
 
     else:
-        # Request better evidence or reopen
-        issue.status = "IN_PROGRESS"
+        # Request better evidence or rework
+        issue.status = "CORRECTION_REQUIRED"
+        issue.cost_status = "REJECTED"
+        issue.cost_verification_remarks = req.cost_remarks or req.explanation
         issue.resolution_review_notes = req.explanation
+
+        latest_comp = (
+            db.query(WorkCompletion)
+            .filter(WorkCompletion.issue_id == issue.id)
+            .order_by(WorkCompletion.submission_number.desc())
+            .first()
+        )
+        if latest_comp:
+            latest_comp.status = "CORRECTION_REQUIRED"
+            latest_comp.pdo_remarks = req.explanation
 
         review = RepairReview(
             issue_id=issue.id,
             reviewer_profile_id=current_reviewer.id,
-            decision="EVIDENCE_REQUESTED",
+            decision="CORRECTION_REQUIRED",
             explanation=req.explanation,
         )
         db.add(review)
@@ -728,16 +916,16 @@ def review_resolution(
             issue_id=issue.id,
             actor_profile_id=current_reviewer.id,
             previous_status=prev_status,
-            next_status="IN_PROGRESS",
-            reason=f"Better repair evidence requested by reviewer: {req.explanation}",
+            next_status="CORRECTION_REQUIRED",
+            reason=f"Correction required by PDO reviewer {current_reviewer.full_name}: {req.explanation}",
         )
         db.add(event)
 
     db.commit()
     db.refresh(issue)
 
-    if req.decision == "APPROVED":
-        from app.notifications.service import notification_service
+    from app.notifications.service import notification_service
+    if req.decision == "APPROVE":
         subs = db.query(Submission).filter(Submission.issue_id == issue.id).all()
         for s in subs:
             notification_service.send_notification(
@@ -749,11 +937,24 @@ def review_resolution(
                 locale=s.locale,
                 dedup_suffix=f"resolved-{issue.id[:8]}",
             )
+    else:
+        # Notify worker that rework is required
+        if issue.assigned_worker_id:
+            notification_service.send_notification(
+                db=db,
+                profile_id=issue.assigned_worker_id,
+                event_type="CORRECTION_REQUESTED",
+                reference_number=issue.reference_number,
+                issue_id=issue.id,
+                locale="en",
+                dedup_suffix=f"rework-{issue.id[:8]}",
+            )
 
     return {
         "status": "success",
         "issue_id": issue.id,
         "new_status": issue.status,
+        "verified_cost": issue.verified_cost,
         "resolved_at": issue.resolved_at,
     }
 
@@ -1167,5 +1368,575 @@ def decide_recurrence_candidate(
         "is_recurrence": new_issue.is_recurrence if new_issue else False,
         "new_priority": new_issue.priority if new_issue else None,
     }
+
+
+# =====================================================================
+# VILLAGE PDO SPECIALIZED GOVERNANCE & OPERATIONAL ENDPOINTS
+# =====================================================================
+
+class VillageOverviewStats(BaseModel):
+    village_id: Optional[str] = None
+    village_name: str
+    total_complaints: int
+    new_complaints: int
+    under_review: int
+    assigned: int
+    in_progress: int
+    awaiting_verification: int
+    resolved: int
+    reopened: int
+    category_distribution: Dict[str, int]
+    status_distribution: Dict[str, int]
+    priority_distribution: Dict[str, int]
+    recent_trend: List[Dict[str, Any]]
+
+class WorkerItem(BaseModel):
+    id: str
+    full_name: str
+    email: str
+    phone_number: Optional[str] = None
+    role: str
+    approval_status: str
+    is_active: bool
+    village_id: Optional[str] = None
+    village_name: Optional[str] = None
+    department_id: Optional[str] = None
+    department_name: Optional[str] = None
+    active_assignments: int = 0
+    completed_assignments: int = 0
+    registered_at: str
+
+class VillageMapPoint(BaseModel):
+    id: str
+    tracking_id: str
+    reference_number: str
+    category: str
+    status: str
+    priority: str
+    latitude: float
+    longitude: float
+    description: Optional[str] = None
+    assigned_worker_name: Optional[str] = None
+    submitted_at: str
+
+class VillageMapResponse(BaseModel):
+    village_id: Optional[str] = None
+    village_name: str
+    boundary_geojson: Optional[str] = None
+    center_latitude: float
+    center_longitude: float
+    points: List[VillageMapPoint]
+
+@router.get("/village-overview", response_model=VillageOverviewStats)
+def get_village_pdo_overview(
+    current_reviewer: Profile = Depends(require_roles("reviewer", "admin")),
+    db: Session = Depends(get_db),
+):
+    """
+    Returns real database-backed overview for the Village PDO's assigned Gram Panchayat.
+    Scoped strictly to the authenticated PDO's jurisdiction.
+    """
+    # Find PDO's assigned village / GP
+    asgn = (
+        db.query(RoleAssignment)
+        .filter(RoleAssignment.profile_id == current_reviewer.id, RoleAssignment.is_active == True)
+        .first()
+    )
+    gp_id = asgn.jurisdiction_unit_id if asgn else None
+
+    # Fetch GP name
+    gp_name = "Unassigned Village"
+    if gp_id:
+        gp_unit = db.query(LocalityUnit).filter(LocalityUnit.id == gp_id).first()
+        if gp_unit:
+            gp_name = gp_unit.name_en
+    else:
+        first_v = db.query(LocalityUnit).filter(LocalityUnit.unit_type.in_(["gram_panchayat", "village"])).first()
+        if first_v:
+            gp_name = f"{first_v.name_en} Gram Panchayat"
+
+    # Scoped query: issues strictly in this GP or its sub-villages/wards
+    query = db.query(Issue).filter(Issue.status != "DRAFT")
+    if gp_id and "admin" not in [r.role for r in current_reviewer.role_assignments]:
+        # Collect sub-unit IDs (villages, wards under this GP)
+        child_ids = [r[0] for r in db.query(LocalityUnit.id).filter(LocalityUnit.parent_id == gp_id).all()]
+        sub_child_ids = [r[0] for r in db.query(LocalityUnit.id).filter(LocalityUnit.parent_id.in_(child_ids)).all()]
+        all_gp_unit_ids = set([gp_id] + child_ids + sub_child_ids)
+        query = query.filter(Issue.locality_unit_id.in_(all_gp_unit_ids))
+    elif not gp_id and "admin" not in [r.role for r in current_reviewer.role_assignments]:
+        # Unassigned reviewer has 0 complaints
+        query = query.filter(Issue.id == "__none__")
+
+    issues = query.all()
+
+    total_complaints = len(issues)
+    new_complaints = sum(1 for i in issues if i.status == "SUBMITTED")
+    under_review = sum(1 for i in issues if i.status in ["UNDER_REVIEW", "NEEDS_INFORMATION"])
+    assigned = sum(1 for i in issues if i.status == "ASSIGNED")
+    in_progress = sum(1 for i in issues if i.status == "IN_PROGRESS")
+    awaiting_verification = sum(1 for i in issues if i.status == "REPAIR_REPORTED")
+    resolved = sum(1 for i in issues if i.status == "RESOLVED")
+    reopened = sum(1 for i in issues if i.status == "REOPENED")
+
+    # Distributions
+    category_dist: Dict[str, int] = {}
+    status_dist: Dict[str, int] = {}
+    priority_dist: Dict[str, int] = {}
+
+    for i in issues:
+        cat = i.category
+        category_dist[cat] = category_dist.get(cat, 0) + 1
+        st = i.status
+        status_dist[st] = status_dist.get(st, 0) + 1
+        pr = i.priority
+        priority_dist[pr] = priority_dist.get(pr, 0) + 1
+
+    # Recent Trend (group by date)
+    date_counts: Dict[str, int] = {}
+    for i in issues:
+        d_str = i.created_at.strftime("%Y-%m-%d") if i.created_at else "Unknown"
+        date_counts[d_str] = date_counts.get(d_str, 0) + 1
+
+    trend_list = [{"date": d, "count": c} for d, c in sorted(date_counts.items())[-10:]]
+
+    return VillageOverviewStats(
+        village_id=gp_id,
+        village_name=gp_name,
+        total_complaints=total_complaints,
+        new_complaints=new_complaints,
+        under_review=under_review,
+        assigned=assigned,
+        in_progress=in_progress,
+        awaiting_verification=awaiting_verification,
+        resolved=resolved,
+        reopened=reopened,
+        category_distribution=category_dist,
+        status_distribution=status_dist,
+        priority_distribution=priority_dist,
+        recent_trend=trend_list,
+    )
+
+@router.get("/workers", response_model=List[WorkerItem])
+def list_village_workers(
+    approval_status: Optional[str] = Query(None),
+    current_reviewer: Profile = Depends(require_roles("reviewer", "admin")),
+    db: Session = Depends(get_db),
+):
+    """
+    Lists workers registered for or assigned to the PDO's Gram Panchayat.
+    Supports filtering by approval status (PENDING, APPROVED, REJECTED, SUSPENDED).
+    """
+    asgn = (
+        db.query(RoleAssignment)
+        .filter(RoleAssignment.profile_id == current_reviewer.id, RoleAssignment.is_active == True)
+        .first()
+    )
+    gp_id = asgn.jurisdiction_unit_id if asgn else None
+
+    query = (
+        db.query(RoleAssignment, Profile)
+        .join(Profile, RoleAssignment.profile_id == Profile.id)
+        .filter(RoleAssignment.role == "worker")
+    )
+
+    if approval_status and approval_status != "ALL":
+        query = query.filter(RoleAssignment.approval_status == approval_status)
+
+    workers = query.all()
+    results: List[WorkerItem] = []
+
+    for r_asgn, prof in workers:
+        v_name = None
+        if r_asgn.jurisdiction_unit_id:
+            u = db.query(LocalityUnit).filter(LocalityUnit.id == r_asgn.jurisdiction_unit_id).first()
+            if u:
+                v_name = u.name_en
+
+        d_name = None
+        if r_asgn.department_id:
+            dept = db.query(Department).filter(Department.id == r_asgn.department_id).first()
+            if dept:
+                d_name = dept.name_en
+
+        active_cnt = db.query(Assignment).filter(
+            Assignment.worker_profile_id == prof.id,
+            Assignment.status.in_(["ASSIGNED", "ACCEPTED", "IN_PROGRESS"]),
+        ).count()
+
+        completed_cnt = db.query(Assignment).filter(
+            Assignment.worker_profile_id == prof.id,
+            Assignment.status == "COMPLETED",
+        ).count()
+
+        results.append(
+            WorkerItem(
+                id=prof.id,
+                full_name=prof.full_name,
+                email=prof.email,
+                phone_number=prof.phone_number,
+                role="worker",
+                approval_status=getattr(r_asgn, "approval_status", "APPROVED") or "APPROVED",
+                is_active=prof.is_active and r_asgn.is_active,
+                village_id=r_asgn.jurisdiction_unit_id,
+                village_name=v_name,
+                department_id=r_asgn.department_id,
+                department_name=d_name,
+                active_assignments=active_cnt,
+                completed_assignments=completed_cnt,
+                registered_at=prof.created_at.isoformat() if prof.created_at else datetime.now(timezone.utc).isoformat(),
+            )
+        )
+
+    return results
+
+@router.post("/workers/{worker_id}/approve")
+def approve_worker_registration(
+    worker_id: str,
+    current_reviewer: Profile = Depends(require_roles("reviewer", "admin")),
+    db: Session = Depends(get_db),
+):
+    """
+    Village PDO reviews and approves a pending worker registration.
+    """
+    prof = db.query(Profile).filter(Profile.id == worker_id).first()
+    if not prof:
+        raise HTTPException(status_code=404, detail="Worker profile not found")
+
+    asgn = db.query(RoleAssignment).filter(
+        RoleAssignment.profile_id == worker_id,
+        RoleAssignment.role == "worker",
+    ).first()
+    if not asgn:
+        raise HTTPException(status_code=404, detail="Worker role assignment not found")
+
+    asgn.approval_status = "APPROVED"
+    asgn.is_active = True
+    asgn.granted_by = current_reviewer.id
+
+    audit = AuditLog(
+        actor_profile_id=current_reviewer.id,
+        action="APPROVE_WORKER",
+        target_type="profile",
+        target_id=prof.id,
+        details_json=f'{{"worker_name": "{prof.full_name}", "approved_by": "{current_reviewer.full_name}"}}',
+    )
+    db.add(audit)
+    db.commit()
+
+    return {"status": "approved", "worker_id": prof.id, "worker_name": prof.full_name}
+
+@router.post("/workers/{worker_id}/reject")
+def reject_worker_registration(
+    worker_id: str,
+    reason: Optional[str] = Query("Qualifications or verification unconfirmed"),
+    current_reviewer: Profile = Depends(require_roles("reviewer", "admin")),
+    db: Session = Depends(get_db),
+):
+    """
+    Village PDO rejects a worker registration with audit reason.
+    """
+    prof = db.query(Profile).filter(Profile.id == worker_id).first()
+    if not prof:
+        raise HTTPException(status_code=404, detail="Worker profile not found")
+
+    asgn = db.query(RoleAssignment).filter(
+        RoleAssignment.profile_id == worker_id,
+        RoleAssignment.role == "worker",
+    ).first()
+    if not asgn:
+        raise HTTPException(status_code=404, detail="Worker role assignment not found")
+
+    asgn.approval_status = "REJECTED"
+    asgn.is_active = False
+
+    audit = AuditLog(
+        actor_profile_id=current_reviewer.id,
+        action="REJECT_WORKER",
+        target_type="profile",
+        target_id=prof.id,
+        details_json=f'{{"worker_name": "{prof.full_name}", "reason": "{reason}"}}',
+    )
+    db.add(audit)
+    db.commit()
+
+    return {"status": "rejected", "worker_id": prof.id, "reason": reason}
+
+@router.get("/village-map", response_model=VillageMapResponse)
+def get_pdo_village_map(
+    category: Optional[str] = Query(None),
+    status_filter: Optional[str] = Query(None),
+    current_reviewer: Profile = Depends(require_roles("reviewer", "admin")),
+    db: Session = Depends(get_db),
+):
+    """
+    Returns verified village boundary GeoJSON and interactive complaint points for the PDO's Village Map.
+    """
+    asgn = (
+        db.query(RoleAssignment)
+        .filter(RoleAssignment.profile_id == current_reviewer.id, RoleAssignment.is_active == True)
+        .first()
+    )
+    gp_id = asgn.jurisdiction_unit_id if asgn else None
+
+    gp_name = "Belagavi Village"
+    boundary_geo = None
+    center_lat = 15.8497
+    center_lon = 74.4977
+
+    if gp_id:
+        gp_unit = db.query(LocalityUnit).filter(LocalityUnit.id == gp_id).first()
+        if gp_unit:
+            gp_name = gp_unit.name_en
+            boundary_geo = gp_unit.boundary_geojson
+
+    query = db.query(Issue).filter(
+        Issue.status != "DRAFT",
+        (Issue.latitude.isnot(None)) | (Issue.public_latitude.isnot(None)),
+    )
+
+    if gp_id and "admin" not in [r.role for r in current_reviewer.role_assignments]:
+        query = query.filter(Issue.locality_unit_id == gp_id)
+    elif not gp_id and "admin" not in [r.role for r in current_reviewer.role_assignments]:
+        query = query.filter(Issue.id == "__none__")
+
+    if category and category != "ALL":
+        query = query.filter(Issue.category == category)
+    if status_filter and status_filter != "ALL":
+        query = query.filter(Issue.status == status_filter)
+
+    issues = query.all()
+    points: List[VillageMapPoint] = []
+
+    for issue in issues:
+        sub = db.query(Submission).filter(Submission.issue_id == issue.id).first()
+        lat = issue.latitude or (sub.latitude if sub else None) or issue.public_latitude
+        lon = issue.longitude or (sub.longitude if sub else None) or issue.public_longitude
+        if not lat or not lon:
+            continue
+
+        worker_name = issue.assigned_worker.full_name if issue.assigned_worker else None
+
+        points.append(
+            VillageMapPoint(
+                id=issue.id,
+                tracking_id=sub.tracking_id if sub else issue.reference_number,
+                reference_number=issue.reference_number,
+                category=issue.category,
+                status=issue.status,
+                priority=issue.priority,
+                latitude=lat,
+                longitude=lon,
+                description=sub.description if sub else None,
+                assigned_worker_name=worker_name,
+                submitted_at=issue.created_at.isoformat() if issue.created_at else datetime.now(timezone.utc).isoformat(),
+            )
+        )
+
+    # If first point exists, use it to frame center
+    if points:
+        center_lat = points[0].latitude
+        center_lon = points[0].longitude
+
+    return VillageMapResponse(
+        village_id=gp_id,
+        village_name=gp_name,
+        boundary_geojson=boundary_geo,
+        center_latitude=center_lat,
+        center_longitude=center_lon,
+        points=points,
+    )
+
+# --- Section 4: Ward Management & Ward Members for Village PDO ---
+
+class CreateWardMemberRequest(BaseModel):
+    ward_unit_id: str
+    full_name: str
+    phone_number: Optional[str] = None
+    email: Optional[str] = None
+    designation: Optional[str] = "Ward Member"
+
+class UpdateWardMemberRequest(BaseModel):
+    full_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    email: Optional[str] = None
+    designation: Optional[str] = None
+    is_active: Optional[bool] = None
+
+@router.get("/wards")
+def get_village_wards(
+    current_user: Profile = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    List all wards in the PDO's assigned Gram Panchayat, along with complaint stats and ward members.
+    Strictly isolated to the PDO's assigned village.
+    """
+    from app.models.users import WardMember
+
+    # Get PDO assigned village
+    assignment = (
+        db.query(RoleAssignment)
+        .filter(RoleAssignment.profile_id == current_user.id, RoleAssignment.is_active == True)
+        .first()
+    )
+    village_id = assignment.jurisdiction_unit_id if assignment else None
+
+    # Query wards
+    wards_query = db.query(LocalityUnit).filter(LocalityUnit.unit_type == "ward")
+    if village_id:
+        wards_query = wards_query.filter(LocalityUnit.parent_id == village_id)
+
+    wards = wards_query.all()
+    results = []
+
+    for w in wards:
+        total_c = db.query(Issue).filter(Issue.locality_unit_id == w.id).count()
+        res_c = db.query(Issue).filter(Issue.locality_unit_id == w.id, Issue.status == "RESOLVED").count()
+        pend_c = db.query(Issue).filter(Issue.locality_unit_id == w.id, Issue.status.in_(["SUBMITTED", "UNDER_REVIEW", "IN_PROGRESS", "ASSIGNED"])).count()
+        
+        # Ward members
+        members = db.query(WardMember).filter(WardMember.ward_unit_id == w.id, WardMember.is_active == True).all()
+        member_list = [
+            {
+                "id": m.id,
+                "full_name": m.full_name,
+                "phone_number": m.phone_number,
+                "email": m.email,
+                "designation": m.designation,
+                "is_active": m.is_active,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+            }
+            for m in members
+        ]
+
+        results.append({
+            "id": w.id,
+            "name_en": w.name_en,
+            "name_kn": w.name_kn,
+            "official_code": w.official_code,
+            "total_complaints": total_c,
+            "resolved_complaints": res_c,
+            "pending_complaints": pend_c,
+            "members_count": len(member_list),
+            "members": member_list,
+        })
+
+    return results
+
+@router.post("/ward-members")
+def add_ward_member(
+    req: CreateWardMemberRequest,
+    current_user: Profile = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Add a new elected or appointed Ward Member to a ward in the PDO's village.
+    """
+    from app.models.users import WardMember
+    import uuid
+
+    # Verify ward exists
+    ward = db.query(LocalityUnit).filter(LocalityUnit.id == req.ward_unit_id).first()
+    if not ward:
+        raise HTTPException(status_code=404, detail="Ward not found")
+
+    member = WardMember(
+        id=str(uuid.uuid4()),
+        ward_unit_id=req.ward_unit_id,
+        full_name=req.full_name.strip(),
+        phone_number=req.phone_number.strip() if req.phone_number else None,
+        email=req.email.strip().lower() if req.email else None,
+        designation=req.designation or "Ward Member",
+        is_active=True,
+    )
+    db.add(member)
+    db.commit()
+    db.refresh(member)
+
+    return {
+        "status": "success",
+        "id": member.id,
+        "full_name": member.full_name,
+        "ward_id": member.ward_unit_id,
+        "designation": member.designation,
+    }
+
+@router.patch("/ward-members/{member_id}")
+def update_ward_member(
+    member_id: str,
+    req: UpdateWardMemberRequest,
+    current_user: Profile = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Update ward member information or toggle active status.
+    """
+    from app.models.users import WardMember
+    member = db.query(WardMember).filter(WardMember.id == member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Ward member not found")
+
+    if req.full_name is not None:
+        member.full_name = req.full_name.strip()
+    if req.phone_number is not None:
+        member.phone_number = req.phone_number.strip()
+    if req.email is not None:
+        member.email = req.email.strip().lower()
+    if req.designation is not None:
+        member.designation = req.designation.strip()
+    if req.is_active is not None:
+        member.is_active = req.is_active
+
+    db.commit()
+    return {"status": "success", "id": member.id, "is_active": member.is_active}
+
+@router.delete("/ward-members/{member_id}")
+def delete_ward_member(
+    member_id: str,
+    current_user: Profile = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Deactivate or remove a ward member.
+    """
+    from app.models.users import WardMember
+    member = db.query(WardMember).filter(WardMember.id == member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Ward member not found")
+
+    member.is_active = False
+    db.commit()
+    return {"status": "success", "message": "Ward member deactivated"}
+
+@router.get("/notifications")
+def get_pdo_notifications(
+    current_user: Profile = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    In-app alerts and Taluk Super Admin announcements delivered to this PDO.
+    """
+    from app.models.issues import Notification
+    notifs = (
+        db.query(Notification)
+        .filter(Notification.profile_id == current_user.id)
+        .order_by(Notification.created_at.desc())
+        .limit(50)
+        .all()
+    )
+
+    return [
+        {
+            "id": n.id,
+            "title": n.title,
+            "message": n.message,
+            "event_type": n.event_type,
+            "is_read": n.is_read,
+            "created_at": n.created_at.isoformat() if n.created_at else None,
+        }
+        for n in notifs
+    ]
+
+
 
 

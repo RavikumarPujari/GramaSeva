@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { Menu, X, Home, FilePlus, Search, Eye } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { GramaSevaLogo } from "@/components/ui/GramaSevaLogo";
 import { LanguageSelector } from "@/components/ui/LanguageSelector";
 import { AccountMenu } from "@/components/ui/AccountMenu";
@@ -16,26 +16,32 @@ export const Navbar: React.FC = () => {
   const tNav = useTranslations("navigation");
   const pathname = usePathname();
 
-  // Exactly FOUR core centered navigation items as required
+  // Remove public navigation from authenticated dashboards
+  const isDashboard = /^\/[a-z]{2}\/(admin|pdo|staff|worker|citizen|my-reports|track)(\/.*)?$/.test(pathname);
+  if (isDashboard) {
+    return null;
+  }
+
+  // Public homepage navigation: Home, About, How It Works, Public Dashboard
   const navLinks = [
-    { href: `/${locale}`, label: tNav("home"), icon: <Home className="w-4 h-4 mr-1.5 opacity-80" /> },
-    { href: `/${locale}/report`, label: tNav("report"), icon: <FilePlus className="w-4 h-4 mr-1.5 opacity-80" /> },
-    { href: `/${locale}/track`, label: tNav("myReports"), icon: <Search className="w-4 h-4 mr-1.5 opacity-80" /> },
-    { href: `/${locale}/public`, label: tNav("publicDashboard"), icon: <Eye className="w-4 h-4 mr-1.5 opacity-80" /> },
+    { href: `/${locale}`, label: tNav("home") },
+    { href: `/${locale}#about`, label: tNav("about") },
+    { href: `/${locale}#how-it-works`, label: tNav("howItWorks") },
+    { href: `/${locale}/public`, label: tNav("publicDashboard") },
   ];
 
   return (
-    <header className="sticky top-0 z-40 bg-white border-b border-[#DCE5EE] shadow-2xs">
-      <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12">
-        <div className="flex items-center justify-between h-16">
-          {/* Left: Reusable GramaSeva Logo */}
-          <div className="flex items-center shrink-0">
-            <GramaSevaLogo size="md" />
+    <header className="sticky top-0 z-40 bg-[#062B46] border-b border-[#05243C] shadow-md">
+      <div className="w-full max-w-[1536px] mx-auto pl-3 sm:pl-5 lg:pl-8 pr-4 sm:pr-6 lg:pr-8">
+        <div className="flex items-center justify-between h-16 gap-4">
+          {/* Left: Reusable GramaSeva Logo with zero extra left indent */}
+          <div className="flex items-center shrink-0 pl-0">
+            <GramaSevaLogo size="md" inverted={true} />
           </div>
 
-          {/* Middle Navigation — Maximum FOUR Centered Items */}
+          {/* Middle Navigation — Centered Four Main Items */}
           <nav
-            className="hidden md:flex items-center space-x-1 lg:space-x-2"
+            className="hidden md:flex items-center justify-center flex-1 space-x-1 lg:space-x-3 px-2"
             aria-label="Main Navigation"
           >
             {navLinks.map((link) => {
@@ -44,42 +50,35 @@ export const Navbar: React.FC = () => {
                 <Link
                   key={link.href}
                   href={link.href}
-                  className={`relative inline-flex items-center px-3.5 py-2 text-xs lg:text-sm font-semibold transition-all duration-150 whitespace-nowrap rounded-lg ${
+                  className={`inline-flex items-center px-4 py-1.5 text-xs lg:text-sm font-semibold transition-all duration-150 whitespace-nowrap rounded-lg ${
                     isActive
-                      ? "text-[#087F78] font-bold bg-[#087F78]/8"
-                      : "text-[#40536B] hover:text-[#102B4E] hover:bg-[#F4F8FC]"
+                      ? "bg-[#00A99D] text-white font-bold shadow-xs"
+                      : "text-white/85 hover:text-white hover:bg-white/10"
                   }`}
                 >
                   <span>{link.label}</span>
-                  {isActive && (
-                    <span className="absolute bottom-0 left-2 right-2 h-[2.5px] bg-[#087F78] rounded-full" />
-                  )}
                 </Link>
               );
             })}
           </nav>
 
-          {/* Right Side: Language Icon & Account Icon */}
-          <div className="hidden sm:flex items-center gap-2.5 shrink-0">
+          {/* Right Side: Language Selector, Account/Profile Menu & Mobile Toggle */}
+          <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
             {/* Single Globe Icon Dropdown */}
-            <LanguageSelector />
+            <LanguageSelector variant="dark" />
 
-            {/* Single Elegant Account Icon Dropdown */}
-            <AccountMenu />
-          </div>
+            {/* Account / Profile Icon Dropdown (Contains Sign In, Register & Portals) */}
+            <AccountMenu variant="dark" />
 
-          {/* Mobile Controls (below sm breakpoint) */}
-          <div className="flex sm:hidden items-center gap-2">
-            <LanguageSelector />
-            <AccountMenu />
+            {/* Mobile Hamburger Button (visible only below md breakpoint) */}
             <button
               type="button"
               onClick={() => setMobileMenuOpen((prev) => !prev)}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-[#102B4E] hover:bg-slate-100 border border-[#DCE5EE] transition-colors focus:outline-none"
+              className="md:hidden w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center text-white hover:bg-white/10 border border-white/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00A99D]"
               aria-label="Toggle navigation menu"
               aria-expanded={mobileMenuOpen}
             >
-              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              {mobileMenuOpen ? <X className="w-5 h-5 text-white" /> : <Menu className="w-5 h-5 text-white" />}
             </button>
           </div>
         </div>
@@ -87,7 +86,7 @@ export const Navbar: React.FC = () => {
 
       {/* Mobile Drawer Navigation */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-[#DCE5EE] bg-white px-4 pt-3 pb-5 space-y-3 shadow-lg animate-in fade-in slide-in-from-top-2 duration-150">
+        <div className="md:hidden border-t border-white/10 bg-[#062B46] px-4 pt-3 pb-5 space-y-2 shadow-xl animate-in fade-in slide-in-from-top-2 duration-150">
           <div className="space-y-1">
             {navLinks.map((link) => {
               const isActive = pathname === link.href;
@@ -98,8 +97,8 @@ export const Navbar: React.FC = () => {
                   onClick={() => setMobileMenuOpen(false)}
                   className={`flex items-center px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
                     isActive
-                      ? "bg-[#087F78]/10 text-[#087F78] font-bold"
-                      : "text-[#102B4E] hover:bg-[#F4F8FC]"
+                      ? "bg-[#00A99D] text-white font-bold"
+                      : "text-white/85 hover:bg-white/10 hover:text-white"
                   }`}
                 >
                   {link.label}

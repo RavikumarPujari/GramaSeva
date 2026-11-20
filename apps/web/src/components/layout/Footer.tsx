@@ -1,5 +1,8 @@
+"use client";
+
 import React from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { ShieldAlert, HeartHandshake } from "lucide-react";
 
@@ -8,6 +11,13 @@ export const Footer: React.FC = () => {
   const tNav = useTranslations("navigation");
   const tLanding = useTranslations("landing");
   const tNotices = useTranslations("notices");
+  const pathname = usePathname();
+
+  // Remove public footer from authenticated dashboards
+  const isDashboard = /^\/[a-z]{2}\/(admin|pdo|staff|worker|citizen|my-reports|track)(\/.*)?$/.test(pathname);
+  if (isDashboard) {
+    return null;
+  }
 
   return (
     <footer className="bg-slate-900 text-slate-300 border-t border-slate-800 mt-auto">
@@ -52,19 +62,24 @@ export const Footer: React.FC = () => {
           </div>
 
           {/* Quick links */}
-          <div>
-            <h4 className="text-sm font-semibold text-white tracking-wider uppercase mb-3">
-              Citizens
+          <div className="space-y-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              {tNav("brand")}
             </h4>
-            <ul className="space-y-2 text-sm">
+            <ul className="space-y-1.5 text-xs text-slate-400">
               <li>
-                <Link href={`/${locale}/report`} className="hover:text-white transition-colors">
-                  {tNav("report")}
+                <Link href={`/${locale}`} className="hover:text-white transition-colors">
+                  {tNav("home")}
                 </Link>
               </li>
               <li>
-                <Link href={`/${locale}/track`} className="hover:text-white transition-colors">
-                  {tNav("myReports")}
+                <Link href={`/${locale}#about`} className="hover:text-white transition-colors">
+                  {tNav("about")}
+                </Link>
+              </li>
+              <li>
+                <Link href={`/${locale}#how-it-works`} className="hover:text-white transition-colors">
+                  {tNav("howItWorks")}
                 </Link>
               </li>
               <li>
@@ -75,34 +90,35 @@ export const Footer: React.FC = () => {
             </ul>
           </div>
 
-          {/* Governance & Staff */}
-          <div>
-            <h4 className="text-sm font-semibold text-white tracking-wider uppercase mb-3">
-              Staff & Portals
+          {/* Portals & Legal */}
+          <div className="space-y-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Civic Governance
             </h4>
-            <ul className="space-y-2 text-sm">
+            <ul className="space-y-1.5 text-xs text-slate-400">
               <li>
-                <Link href={`/${locale}/staff`} className="hover:text-white transition-colors">
-                  {tNav("staffPortal")}
+                <Link href={`/${locale}/login`} className="hover:text-white transition-colors">
+                  Role Sign In
                 </Link>
               </li>
               <li>
-                <Link href={`/${locale}/worker`} className="hover:text-white transition-colors">
-                  {tNav("workerPortal")}
+                <Link href={`/${locale}/register`} className="hover:text-white transition-colors">
+                  Citizen & Worker Registration
                 </Link>
               </li>
               <li>
-                <Link href={`/${locale}/admin`} className="hover:text-white transition-colors">
-                  {tNav("adminPortal")}
-                </Link>
+                <span className="text-slate-500">Verified Photo Evidence Protocol</span>
               </li>
             </ul>
           </div>
         </div>
 
-        <div className="pt-8 mt-8 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-4">
-          <p>© {new Date().getFullYear()} GramaSeva Civic Pilot. All rights reserved.</p>
-          <p className="text-slate-400">{tNotices("advisoryAi")}</p>
+        <div className="mt-8 pt-6 border-t border-slate-800 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <p>&copy; 2026 GramaSeva Civic Systems. Public Sector Initiative for Rural Karnataka.</p>
+          <div className="flex items-center gap-4">
+            <span className="hover:text-slate-400 cursor-pointer">Security & Privacy</span>
+            <span className="hover:text-slate-400 cursor-pointer">Panchayat Portal SLA</span>
+          </div>
         </div>
       </div>
     </footer>

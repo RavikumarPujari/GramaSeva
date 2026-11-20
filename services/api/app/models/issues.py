@@ -35,6 +35,22 @@ class Issue(Base, TimestampMixin):
     resolved_at = Column(DateTime, nullable=True)
     resolution_review_notes = Column(Text, nullable=True)
 
+    # Cost Tracking and Completion Fields
+    estimated_cost = Column(Float, nullable=True)
+    proposed_cost = Column(Float, nullable=True)
+    materials_cost = Column(Float, nullable=True)
+    labour_cost = Column(Float, nullable=True)
+    other_expenses_cost = Column(Float, nullable=True)
+    verified_cost = Column(Float, nullable=True)
+    cost_status = Column(String(50), default="UNRECORDED", nullable=False)  # UNRECORDED, PROPOSED, VERIFIED, REJECTED
+    work_completed_at = Column(DateTime, nullable=True)
+    work_completion_description = Column(Text, nullable=True)
+    work_performed = Column(Text, nullable=True)
+    materials_used = Column(Text, nullable=True)
+    labour_details = Column(Text, nullable=True)
+    cost_verification_remarks = Column(Text, nullable=True)
+    public_display_consent = Column(Boolean, default=False, nullable=False)
+
     # Advanced Phase 8 fields: Asset register link, recurrence, and operational escalation
     asset_id = Column(String(36), ForeignKey("assets.id", ondelete="SET NULL"), nullable=True, index=True)
     is_recurrence = Column(Boolean, default=False, nullable=False)
@@ -51,6 +67,8 @@ class Issue(Base, TimestampMixin):
     media_assets = relationship("MediaAsset", back_populates="issue")
     assignments = relationship("Assignment", back_populates="issue")
     repair_reviews = relationship("RepairReview", back_populates="issue")
+    work_completions = relationship("WorkCompletion", back_populates="issue", order_by="desc(WorkCompletion.created_at)")
+    ai_analyses = relationship("AIBeforeAfterAnalysis", back_populates="issue", order_by="desc(AIBeforeAfterAnalysis.created_at)")
     status_events = relationship("StatusEvent", back_populates="issue")
     asset = relationship("Asset", back_populates="issues")
 
@@ -74,6 +92,7 @@ class Submission(Base, TimestampMixin):
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
     is_anonymous = Column(Boolean, default=False, nullable=False)
+    public_display_consent = Column(Boolean, default=False, nullable=False)
 
     reporter = relationship("Profile", back_populates="submissions")
     issue = relationship("Issue", back_populates="submissions")
@@ -95,6 +114,7 @@ class MediaAsset(Base, TimestampMixin):
 
     is_quarantined = Column(Boolean, default=True, nullable=False)
     is_public_approved = Column(Boolean, default=False, nullable=False)
+    work_completion_id = Column(String(36), nullable=True)
 
     submission = relationship("Submission", back_populates="media_assets")
     issue = relationship("Issue", back_populates="media_assets")
@@ -298,4 +318,64 @@ class TranslationRecord(Base, TimestampMixin):
     model_id = Column(String(100), default="indictrans2-civic-v1", nullable=False)
     is_machine_translated = Column(Boolean, default=True, nullable=False)
     is_verified = Column(Boolean, default=False, nullable=False)
+
+class WorkCompletion(Base, TimestampMixin):
+    """Field worker completion evidence, materials, labour, proposed expenditure, and audit trail."""
+    __tablename__ = "work_completions"
+
+    issue_id = Column(String(36), ForeignKey("issues.id", ondelete="CASCADE"), nullable=False, index=True)
+    worker_profile_id = Column(String(36), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    assignment_id = Column(String(36), nullable=True)
+    submission_number = Column(Integer, default=1, nullable=False)
+    
+    work_description = Column(Text, nullable=False)
+    work_performed = Column(Text, nullable=True)
+    materials_used = Column(Text, nullable=True)
+    labour_details = Column(Text, nullable=True)
+    
+    materials_cost = Column(Float, default=0.0, nullable=False)
+    labour_cost = Column(Float, default=0.0, nullable=False)
+    other_expenses_cost = Column(Float, default=0.0, nullable=False)
+    proposed_cost = Column(Float, default=0.0, nullable=False)
+    
+    completion_date = Column(DateTime, nullable=True)
+    supporting_documents_paths = Column(Text, nullable=True)
+    
+    # Status: AWAITING_VERIFICATION, APPROVED, CORRECTION_REQUIRED, REJECTED
+    status = Column(String(50), default="AWAITING_VERIFICATION", nullable=False)
+    pdo_remarks = Column(Text, nullable=True)
+    verified_cost = Column(Float, nullable=True)
+    verified_by_id = Column(String(36), ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True)
+    verified_at = Column(DateTime, nullable=True)
+
+    issue = relationship("Issue", back_populates="work_completions")
+    worker = relationship("Profile", foreign_keys=[worker_profile_id])
+    verified_by = relationship("Profile", foreign_keys=[verified_by_id])
+
+class AIBeforeAfterAnalysis(Base, TimestampMixin):
+    """Immutable record of real advisory AI Before/After photographic comparison."""
+    __tablename__ = "ai_before_after_analyses"
+
+    issue_id = Column(String(36), ForeignKey("issues.id", ondelete="CASCADE"), nullable=False, index=True)
+    work_completion_id = Column(String(36), nullable=True, index=True)
+    before_media_asset_id = Column(String(36), ForeignKey("media_assets.id", ondelete="SET NULL"), nullable=True)
+    after_media_asset_id = Column(String(36), ForeignKey("media_assets.id", ondelete="SET NULL"), nullable=True)
+
+    model_id = Column(String(100), default="evidence-assistance-dhash-v1", nullable=False)
+    model_revision = Column(String(64), default="rev-1.2.0", nullable=False)
+    visible_change = Column(Boolean, default=False, nullable=False)
+    possible_mismatch = Column(Boolean, default=False, nullable=False)
+    insufficient_evidence = Column(Boolean, default=False, nullable=False)
+    visual_consistency_score = Column(Float, default=0.0, nullable=False)
+    difference_summary = Column(Text, nullable=False)
+    advisory_decision_suggestion = Column(String(50), default="REVIEW_FOR_APPROVAL", nullable=False)
+    suggested_description = Column(Text, nullable=True)
+    status = Column(String(50), default="COMPLETED", nullable=False)
+    error_message = Column(Text, nullable=True)
+    latency_ms = Column(Integer, default=0, nullable=False)
+
+    issue = relationship("Issue", back_populates="ai_analyses")
+    before_media_asset = relationship("MediaAsset", foreign_keys=[before_media_asset_id])
+    after_media_asset = relationship("MediaAsset", foreign_keys=[after_media_asset_id])
+
 

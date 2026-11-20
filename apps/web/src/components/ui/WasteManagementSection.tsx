@@ -19,7 +19,7 @@ export const WasteManagementSection: React.FC = () => {
   const locale = useLocale();
 
   return (
-    <section className="py-14 sm:py-18 lg:py-20 bg-white border-t border-b border-[#DCE5EE]">
+    <section id="about" className="py-14 sm:py-18 lg:py-20 bg-white border-t border-b border-[#DCE5EE]">
       <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12 space-y-12">
         {/* Main Cleanliness & Waste Management Feature Block */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 xl:gap-16 items-center">

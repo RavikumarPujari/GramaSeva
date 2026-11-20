@@ -1,3 +1,5 @@
-import MyReportsPage from "../my-reports/page";
+import { redirect } from "next/navigation";
 
-export default MyReportsPage;
+export default function TrackPage({ params }: { params: { locale: string } }) {
+  redirect(`/${params?.locale || "en"}/citizen`);
+}

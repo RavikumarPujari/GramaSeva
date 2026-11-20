@@ -90,22 +90,28 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({
 
   const portalLinks = [
     {
-      href: `/${locale}/staff`,
-      label: "Reviewer Queue",
-      role: "Panchayat Reviewer",
+      href: `/${locale}/admin`,
+      label: "Super Admin",
+      role: "State & District",
+      icon: <ShieldAlert className="w-3.5 h-3.5 text-[#102B4E]" />,
+    },
+    {
+      href: `/${locale}/pdo`,
+      label: "Village PDO",
+      role: "Gram Panchayat Operations",
       icon: <ClipboardList className="w-3.5 h-3.5 text-[#087F78]" />,
     },
     {
       href: `/${locale}/worker`,
       label: "Field Worker",
-      role: "Task Workspace",
-      icon: <Wrench className="w-3.5 h-3.5 text-[#102B4E]" />,
+      role: "Assigned Work Orders",
+      icon: <Wrench className="w-3.5 h-3.5 text-sky-700" />,
     },
     {
-      href: `/${locale}/admin`,
-      label: "Administration",
-      role: "Wards & Overview",
-      icon: <Settings className="w-3.5 h-3.5 text-slate-600" />,
+      href: `/${locale}/citizen`,
+      label: "Citizen Dashboard",
+      role: "My Submissions & History",
+      icon: <UserCheck className="w-3.5 h-3.5 text-amber-700" />,
     },
   ];
 
@@ -126,6 +132,7 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({
         onClick={() => setIsOpen((prev) => !prev)}
         className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center transition-all duration-150 border ${buttonStyles} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#20B5A5]`}
         aria-label="Account and Authentication Menu"
+        title="Account & Access (Sign In / Register)"
         aria-expanded={isOpen}
         aria-haspopup="menu"
       >
