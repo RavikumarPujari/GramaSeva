@@ -109,6 +109,108 @@ def get_reviewer_inbox(
 
     return results
 
+
+class StaffComplaintItem(BaseModel):
+    id: str
+    submission_id: Optional[str] = None
+    tracking_id: str
+    reference_number: str
+    category: str
+    status: str
+    priority: str
+    village_name: Optional[str] = None
+    ward_name: Optional[str] = None
+    description: Optional[str] = None
+    assigned_worker_id: Optional[str] = None
+    assigned_worker_name: Optional[str] = None
+    department_id: Optional[str] = None
+    department_name: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    is_duplicate: bool = False
+    is_recurrence: bool = False
+    created_at: datetime
+    resolved_at: Optional[datetime] = None
+    photos_count: int = 0
+
+
+@router.get("/all-complaints", response_model=List[StaffComplaintItem])
+def get_all_complaints(
+    category: Optional[str] = Query(None),
+    status_filter: Optional[str] = Query(None, alias="status"),
+    priority: Optional[str] = Query(None),
+    village_name: Optional[str] = Query(None),
+    ward_name: Optional[str] = Query(None),
+    current_reviewer: Profile = Depends(require_roles("reviewer", "admin")),
+    db: Session = Depends(get_db),
+):
+    """
+    Returns all complaints across the Gram Panchayat with full administrative fields,
+    supporting filtering by Category, Village, Ward, Status, and Priority.
+    """
+    query = db.query(Issue).filter(Issue.status != "DRAFT")
+
+    if category and category != "ALL":
+        query = query.filter(Issue.category == category)
+    if status_filter and status_filter != "ALL":
+        query = query.filter(Issue.status == status_filter)
+    if priority and priority != "ALL":
+        query = query.filter(Issue.priority == priority)
+
+    issues = query.order_by(Issue.created_at.desc()).all()
+    results: List[StaffComplaintItem] = []
+
+    for issue in issues:
+        # Get first submission for original description & reporter details
+        sub = db.query(Submission).filter(Submission.issue_id == issue.id).order_by(Submission.created_at.asc()).first()
+        photos_count = db.query(MediaAsset).filter(MediaAsset.issue_id == issue.id).count()
+
+        v_name = sub.village_name if sub else None
+        w_name = sub.ward_name if sub else None
+        if not v_name and issue.locality_unit:
+            if issue.locality_unit.unit_type == "village":
+                v_name = issue.locality_unit.name_en
+            elif issue.locality_unit.unit_type == "ward":
+                w_name = issue.locality_unit.name_en
+                if issue.locality_unit.parent:
+                    v_name = issue.locality_unit.parent.name_en
+
+        if village_name and village_name != "ALL" and v_name and village_name.lower() not in v_name.lower():
+            continue
+        if ward_name and ward_name != "ALL" and w_name and ward_name.lower() not in w_name.lower():
+            continue
+
+        worker_name = issue.assigned_worker.full_name if issue.assigned_worker else None
+        dept_name = issue.department.name_en if issue.department else None
+
+        results.append(
+            StaffComplaintItem(
+                id=issue.id,
+                submission_id=sub.id if sub else None,
+                tracking_id=sub.tracking_id if sub else issue.reference_number,
+                reference_number=issue.reference_number,
+                category=issue.category,
+                status=issue.status,
+                priority=issue.priority,
+                village_name=v_name,
+                ward_name=w_name,
+                description=sub.description if sub else None,
+                assigned_worker_id=issue.assigned_worker_id,
+                assigned_worker_name=worker_name,
+                department_id=issue.department_id,
+                department_name=dept_name,
+                latitude=issue.latitude or (sub.latitude if sub else None),
+                longitude=issue.longitude or (sub.longitude if sub else None),
+                is_duplicate=issue.status == "SUPERSEDED",
+                is_recurrence=issue.is_recurrence,
+                created_at=issue.created_at,
+                resolved_at=issue.resolved_at,
+                photos_count=photos_count,
+            )
+        )
+
+    return results
+
 @router.post("/issues/{issue_id}/triage")
 def triage_issue(
     issue_id: str,
@@ -452,6 +554,108 @@ def get_resolution_queue(
 
     return results
 
+
+class StaffComplaintItem(BaseModel):
+    id: str
+    submission_id: Optional[str] = None
+    tracking_id: str
+    reference_number: str
+    category: str
+    status: str
+    priority: str
+    village_name: Optional[str] = None
+    ward_name: Optional[str] = None
+    description: Optional[str] = None
+    assigned_worker_id: Optional[str] = None
+    assigned_worker_name: Optional[str] = None
+    department_id: Optional[str] = None
+    department_name: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    is_duplicate: bool = False
+    is_recurrence: bool = False
+    created_at: datetime
+    resolved_at: Optional[datetime] = None
+    photos_count: int = 0
+
+
+@router.get("/all-complaints", response_model=List[StaffComplaintItem])
+def get_all_complaints(
+    category: Optional[str] = Query(None),
+    status_filter: Optional[str] = Query(None, alias="status"),
+    priority: Optional[str] = Query(None),
+    village_name: Optional[str] = Query(None),
+    ward_name: Optional[str] = Query(None),
+    current_reviewer: Profile = Depends(require_roles("reviewer", "admin")),
+    db: Session = Depends(get_db),
+):
+    """
+    Returns all complaints across the Gram Panchayat with full administrative fields,
+    supporting filtering by Category, Village, Ward, Status, and Priority.
+    """
+    query = db.query(Issue).filter(Issue.status != "DRAFT")
+
+    if category and category != "ALL":
+        query = query.filter(Issue.category == category)
+    if status_filter and status_filter != "ALL":
+        query = query.filter(Issue.status == status_filter)
+    if priority and priority != "ALL":
+        query = query.filter(Issue.priority == priority)
+
+    issues = query.order_by(Issue.created_at.desc()).all()
+    results: List[StaffComplaintItem] = []
+
+    for issue in issues:
+        # Get first submission for original description & reporter details
+        sub = db.query(Submission).filter(Submission.issue_id == issue.id).order_by(Submission.created_at.asc()).first()
+        photos_count = db.query(MediaAsset).filter(MediaAsset.issue_id == issue.id).count()
+
+        v_name = sub.village_name if sub else None
+        w_name = sub.ward_name if sub else None
+        if not v_name and issue.locality_unit:
+            if issue.locality_unit.unit_type == "village":
+                v_name = issue.locality_unit.name_en
+            elif issue.locality_unit.unit_type == "ward":
+                w_name = issue.locality_unit.name_en
+                if issue.locality_unit.parent:
+                    v_name = issue.locality_unit.parent.name_en
+
+        if village_name and village_name != "ALL" and v_name and village_name.lower() not in v_name.lower():
+            continue
+        if ward_name and ward_name != "ALL" and w_name and ward_name.lower() not in w_name.lower():
+            continue
+
+        worker_name = issue.assigned_worker.full_name if issue.assigned_worker else None
+        dept_name = issue.department.name_en if issue.department else None
+
+        results.append(
+            StaffComplaintItem(
+                id=issue.id,
+                submission_id=sub.id if sub else None,
+                tracking_id=sub.tracking_id if sub else issue.reference_number,
+                reference_number=issue.reference_number,
+                category=issue.category,
+                status=issue.status,
+                priority=issue.priority,
+                village_name=v_name,
+                ward_name=w_name,
+                description=sub.description if sub else None,
+                assigned_worker_id=issue.assigned_worker_id,
+                assigned_worker_name=worker_name,
+                department_id=issue.department_id,
+                department_name=dept_name,
+                latitude=issue.latitude or (sub.latitude if sub else None),
+                longitude=issue.longitude or (sub.longitude if sub else None),
+                is_duplicate=issue.status == "SUPERSEDED",
+                is_recurrence=issue.is_recurrence,
+                created_at=issue.created_at,
+                resolved_at=issue.resolved_at,
+                photos_count=photos_count,
+            )
+        )
+
+    return results
+
 @router.post("/issues/{issue_id}/resolution")
 def review_resolution(
     issue_id: str,
@@ -552,6 +756,133 @@ def review_resolution(
         "new_status": issue.status,
         "resolved_at": issue.resolved_at,
     }
+
+
+class RequestInfoRequest(BaseModel):
+    message: str
+
+
+class RejectIssueRequest(BaseModel):
+    reason: str
+
+
+class ConfirmIssueRequest(BaseModel):
+    reason: Optional[str] = "Confirmed by Panchayat reviewer"
+
+
+@router.post("/issues/{issue_id}/request-info")
+def request_issue_information(
+    issue_id: str,
+    req: RequestInfoRequest,
+    current_reviewer: Profile = Depends(require_roles("reviewer", "admin")),
+    db: Session = Depends(get_db),
+):
+    issue = db.query(Issue).filter(Issue.id == issue_id).first()
+    if not issue:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
+
+    prev_status = issue.status
+    issue.status = "NEEDS_INFORMATION"
+
+    event = StatusEvent(
+        issue_id=issue.id,
+        actor_profile_id=current_reviewer.id,
+        previous_status=prev_status,
+        next_status="NEEDS_INFORMATION",
+        reason=f"Additional information requested by {current_reviewer.full_name}: {req.message}",
+    )
+    db.add(event)
+    db.commit()
+
+    try:
+        from app.notifications.service import notification_service
+        subs = db.query(Submission).filter(Submission.issue_id == issue.id).all()
+        for s in subs:
+            notification_service.send_notification(
+                db=db,
+                profile_id=s.reporter_id,
+                event_type="NEEDS_INFORMATION",
+                reference_number=issue.reference_number,
+                issue_id=issue.id,
+                locale=s.locale,
+                custom_message=f"Panchayat reviewer requested information for {issue.reference_number}: {req.message}",
+                dedup_suffix=f"needinfo-{issue.id[:8]}",
+            )
+    except Exception:
+        pass
+
+    return {"status": "success", "issue_id": issue.id, "new_status": issue.status, "message": req.message}
+
+
+@router.post("/issues/{issue_id}/reject")
+def reject_issue(
+    issue_id: str,
+    req: RejectIssueRequest,
+    current_reviewer: Profile = Depends(require_roles("reviewer", "admin")),
+    db: Session = Depends(get_db),
+):
+    issue = db.query(Issue).filter(Issue.id == issue_id).first()
+    if not issue:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
+
+    prev_status = issue.status
+    issue.status = "REJECTED"
+
+    event = StatusEvent(
+        issue_id=issue.id,
+        actor_profile_id=current_reviewer.id,
+        previous_status=prev_status,
+        next_status="REJECTED",
+        reason=f"Rejected by {current_reviewer.full_name}. Reason: {req.reason}",
+    )
+    db.add(event)
+    db.commit()
+
+    try:
+        from app.notifications.service import notification_service
+        subs = db.query(Submission).filter(Submission.issue_id == issue.id).all()
+        for s in subs:
+            notification_service.send_notification(
+                db=db,
+                profile_id=s.reporter_id,
+                event_type="ISSUE_REJECTED",
+                reference_number=issue.reference_number,
+                issue_id=issue.id,
+                locale=s.locale,
+                custom_message=f"Complaint {issue.reference_number} was rejected by Panchayat review. Reason: {req.reason}",
+                dedup_suffix=f"rejected-{issue.id[:8]}",
+            )
+    except Exception:
+        pass
+
+    return {"status": "success", "issue_id": issue.id, "new_status": issue.status, "reason": req.reason}
+
+
+@router.post("/issues/{issue_id}/confirm")
+def confirm_issue(
+    issue_id: str,
+    req: ConfirmIssueRequest = ConfirmIssueRequest(),
+    current_reviewer: Profile = Depends(require_roles("reviewer", "admin")),
+    db: Session = Depends(get_db),
+):
+    issue = db.query(Issue).filter(Issue.id == issue_id).first()
+    if not issue:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
+
+    prev_status = issue.status
+    issue.status = "UNDER_REVIEW"
+
+    event = StatusEvent(
+        issue_id=issue.id,
+        actor_profile_id=current_reviewer.id,
+        previous_status=prev_status,
+        next_status="UNDER_REVIEW",
+        reason=f"Complaint confirmed by {current_reviewer.full_name}. {req.reason or ''}",
+    )
+    db.add(event)
+    db.commit()
+
+    return {"status": "success", "issue_id": issue.id, "new_status": issue.status}
 
 class RedactMediaRequest(BaseModel):
     reason: str

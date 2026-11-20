@@ -9,6 +9,14 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        grama: {
+          navy: "#0B2545",
+          navySec: "#13315C",
+          teal: "#0F766E",
+          tealHover: "#0D655E",
+          tealLight: "#CCFBF1",
+          bg: "#F4F8FB",
+        },
         civic: {
           50: "#f0f7ff",
           100: "#e0effe",

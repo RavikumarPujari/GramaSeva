@@ -1,19 +1,20 @@
 {
   "navigation": {
-    "brand": "FixProof",
+    "brand": "GramaSeva",
     "home": "Home",
-    "report": "Report Problem",
-    "myReports": "My Reports",
-    "publicDashboard": "Public Transparency",
+    "report": "Report a Problem",
+    "myReports": "Track a Report",
+    "publicDashboard": "Public Dashboard",
     "staffPortal": "Staff Review",
     "workerPortal": "Field Worker",
     "adminPortal": "Administration",
     "selectLanguage": "Language",
     "signIn": "Sign In",
-    "signOut": "Sign Out"
+    "signOut": "Sign Out",
+    "register": "Register"
   },
   "common": {
-    "appTitle": "FixProof Civic Resolution Pilot",
+    "appTitle": "GramaSeva Civic Resolution Platform",
     "appSubtitle": "Village and ward civic problem reporting, verified repair tracking, and transparent public accountability.",
     "pilotBadge": "Pilot Project",
     "loading": "Loading...",
@@ -41,7 +42,7 @@
     "reportButton": "Report an Infrastructure Issue",
     "trackButton": "Track Your Submission",
     "publicButton": "View Public Accountability Map",
-    "howItWorksTitle": "How FixProof Works",
+    "howItWorksTitle": "How GramaSeva Works",
     "step1Title": "1. Report with Evidence",
     "step1Desc": "Upload a photo of damaged roads, water leaks, or waste. Select your village and ward, or pick a pin on the map.",
     "step2Title": "2. Triaged & Assigned",
@@ -50,7 +51,7 @@
     "step3Desc": "Field workers perform the repair and must submit photographic evidence of completed work.",
     "step4Title": "4. Independent Verification",
     "step4Desc": "An authorized reviewer independently confirms the fix before status is marked 'Resolved'. Citizens can dispute if unresolved.",
-    "disclaimer": "FixProof is not an emergency dispatch service. AI suggestions are advisory only and require human review."
+    "disclaimer": "GramaSeva is not an emergency dispatch service. AI suggestions are advisory only and require human review."
   },
   "categories": {
     "road_damage": "Road Damage & Potholes",

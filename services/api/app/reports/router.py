@@ -16,6 +16,7 @@ from app.models.issues import (
     MediaAsset,
     StatusEvent,
     Job,
+    DuplicateCandidate,
 )
 from app.storage.service import storage_service
 from app.auth.dependencies import get_current_user, require_roles
@@ -39,7 +40,7 @@ router = APIRouter(prefix="/reports", tags=["Citizen Reporting & Evidence"])
 def generate_tracking_id() -> str:
     year = datetime.now(timezone.utc).year
     rand_suffix = random.randint(10000, 99999)
-    return f"FP-{year}-{rand_suffix}"
+    return f"GS-{year}-{rand_suffix}"
 
 def build_report_response(submission: Submission, issue: Optional[Issue], db: Session) -> ReportResponse:
     media = (
@@ -316,6 +317,90 @@ def submit_report(
     if req.is_anonymous:
         submission.is_anonymous = True
 
+    # Milestone 1: Handle Confirmed Duplicate Linking
+    if req.duplicate_decision == "CONFIRMED_DUPLICATE" and req.duplicate_target_issue_id:
+        target_issue = db.query(Issue).filter(Issue.id == req.duplicate_target_issue_id).first()
+        if target_issue:
+            old_draft_issue = issue
+            # Detach submission from old issue collection before re-linking
+            if submission in old_draft_issue.submissions:
+                old_draft_issue.submissions.remove(submission)
+            submission.issue_id = target_issue.id
+            if target_issue not in old_draft_issue.submissions:
+                target_issue.submissions.append(submission)
+
+            # Link uploaded media assets to target issue
+            for media in db.query(MediaAsset).filter(MediaAsset.submission_id == submission.id).all():
+                if media in old_draft_issue.media_assets:
+                    old_draft_issue.media_assets.remove(media)
+                media.issue_id = target_issue.id
+
+            # Record duplicate candidate decision
+            dup = DuplicateCandidate(
+                submission_id=submission.id,
+                target_issue_id=target_issue.id,
+                detection_method="citizen_confirmed_duplicate",
+                decision="CONFIRMED_DUPLICATE",
+                notes=f"Citizen confirmed report {submission.tracking_id} links to existing issue {target_issue.reference_number}",
+            )
+            db.add(dup)
+
+            # Record StatusEvent on existing physical issue
+            event = StatusEvent(
+                issue_id=target_issue.id,
+                actor_profile_id=current_user.id,
+                previous_status=target_issue.status,
+                next_status=target_issue.status,
+                reason=f"Additional citizen report {submission.tracking_id} confirmed as duplicate and linked.",
+            )
+            db.add(event)
+
+            # Clean up redundant placeholder draft issue
+            if old_draft_issue.id != target_issue.id:
+                db.query(StatusEvent).filter(StatusEvent.issue_id == old_draft_issue.id).delete()
+                db.delete(old_draft_issue)
+
+            db.commit()
+            db.refresh(submission)
+            db.refresh(target_issue)
+
+            from app.notifications.service import notification_service
+            notification_service.send_notification(
+                db=db,
+                profile_id=current_user.id,
+                event_type="SUBMISSION_RECEIVED",
+                reference_number=submission.tracking_id,
+                issue_id=target_issue.id,
+                locale=submission.locale,
+                dedup_suffix="duplicate-link",
+            )
+
+            return build_report_response(submission, target_issue, db)
+
+    # Handle Uncertain Duplicate (Needs Human Review) vs Rejected Different
+    if req.duplicate_decision == "UNCERTAIN_NEEDS_REVIEW" and req.duplicate_target_issue_id:
+        dup = DuplicateCandidate(
+            submission_id=submission.id,
+            target_issue_id=req.duplicate_target_issue_id,
+            detection_method="spatial_and_visual_candidate",
+            decision="UNCERTAIN_NEEDS_REVIEW",
+            notes="Citizen flagged uncertainty regarding duplicate candidate; requires reviewer adjudication.",
+        )
+        db.add(dup)
+        event_reason = f"Citizen completed submission. Flagged possible duplicate with issue {req.duplicate_target_issue_id} (Uncertain - reviewer check requested)."
+    elif req.duplicate_decision == "REJECTED_DIFFERENT" and req.duplicate_target_issue_id:
+        dup = DuplicateCandidate(
+            submission_id=submission.id,
+            target_issue_id=req.duplicate_target_issue_id,
+            detection_method="spatial_and_visual_candidate",
+            decision="REJECTED_DIFFERENT",
+            notes="Citizen confirmed issue is distinct.",
+        )
+        db.add(dup)
+        event_reason = "Citizen completed submission (Confirmed distinct issue)."
+    else:
+        event_reason = "Citizen completed submission with photo evidence"
+
     # Transition status
     issue.status = "SUBMITTED"
 
@@ -324,7 +409,7 @@ def submit_report(
         actor_profile_id=current_user.id,
         previous_status="DRAFT",
         next_status="SUBMITTED",
-        reason="Citizen completed submission with photo evidence",
+        reason=event_reason,
     )
     db.add(event)
 
@@ -667,6 +752,7 @@ def get_report_duplicate_suggestions(
                 ward_name=ward_name,
                 composite_score=rank_res["composite_score"],
                 explanation=rank_res["explanation"],
+                target_media_id=target_media.id if target_media else None,
                 created_at=issue.created_at,
             )
         )

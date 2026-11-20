@@ -2,196 +2,111 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import {
-  Menu,
-  X,
-  Languages,
-  ShieldCheck,
-  FilePlus,
-  Search,
-  Eye,
-  ClipboardList,
-  Wrench,
-  Settings,
-} from "lucide-react";
-import { locales, localeNames, type Locale } from "@/i18n";
+import { Menu, X, Home, FilePlus, Search, Eye } from "lucide-react";
+import { GramaSevaLogo } from "@/components/ui/GramaSevaLogo";
+import { LanguageSelector } from "@/components/ui/LanguageSelector";
+import { AccountMenu } from "@/components/ui/AccountMenu";
+import type { Locale } from "@/i18n";
 
 export const Navbar: React.FC = () => {
-  const [isOpen, setIsOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const locale = useLocale() as Locale;
   const tNav = useTranslations("navigation");
-  const tCommon = useTranslations("common");
   const pathname = usePathname();
-  const router = useRouter();
 
-  // Function to switch locale while preserving current path
-  const handleLocaleChange = (newLocale: Locale) => {
-    if (newLocale === locale) return;
-    const segments = pathname.split("/");
-    segments[1] = newLocale;
-    const newPath = segments.join("/") || `/${newLocale}`;
-    router.push(newPath);
-  };
-
+  // Exactly FOUR core centered navigation items as required
   const navLinks = [
-    { href: `/${locale}`, label: tNav("home"), icon: null },
-    { href: `/${locale}/report`, label: tNav("report"), icon: <FilePlus className="w-4 h-4 mr-1.5" /> },
-    { href: `/${locale}/my-reports`, label: tNav("myReports"), icon: <Search className="w-4 h-4 mr-1.5" /> },
-    { href: `/${locale}/public`, label: tNav("publicDashboard"), icon: <Eye className="w-4 h-4 mr-1.5" /> },
-  ];
-
-  const portalLinks = [
-    { href: `/${locale}/staff`, label: tNav("staffPortal"), icon: <ClipboardList className="w-4 h-4 mr-1.5" /> },
-    { href: `/${locale}/worker`, label: tNav("workerPortal"), icon: <Wrench className="w-4 h-4 mr-1.5" /> },
-    { href: `/${locale}/admin`, label: tNav("adminPortal"), icon: <Settings className="w-4 h-4 mr-1.5" /> },
+    { href: `/${locale}`, label: tNav("home"), icon: <Home className="w-4 h-4 mr-1.5 opacity-80" /> },
+    { href: `/${locale}/report`, label: tNav("report"), icon: <FilePlus className="w-4 h-4 mr-1.5 opacity-80" /> },
+    { href: `/${locale}/track`, label: tNav("myReports"), icon: <Search className="w-4 h-4 mr-1.5 opacity-80" /> },
+    { href: `/${locale}/public`, label: tNav("publicDashboard"), icon: <Eye className="w-4 h-4 mr-1.5 opacity-80" /> },
   ];
 
   return (
-    <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-40 bg-white border-b border-[#DCE5EE] shadow-2xs">
+      <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12">
         <div className="flex items-center justify-between h-16">
-          {/* Brand */}
-          <div className="flex items-center gap-3">
-            <Link
-              href={`/${locale}`}
-              className="flex items-center gap-2 font-bold text-slate-900 tracking-tight text-xl focus:outline-none"
-            >
-              <div className="w-9 h-9 rounded-lg bg-civic-600 flex items-center justify-center text-white shadow-sm">
-                <ShieldCheck className="w-5 h-5" aria-hidden="true" />
-              </div>
-              <span className="text-slate-900">Fix<span className="text-civic-600">Proof</span></span>
-            </Link>
-            <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800 border border-emerald-200">
-              {tCommon("pilotBadge")}
-            </span>
+          {/* Left: Reusable GramaSeva Logo */}
+          <div className="flex items-center shrink-0">
+            <GramaSevaLogo size="md" />
           </div>
 
-          {/* Desktop Nav */}
-          <nav className="hidden md:flex items-center space-x-1 lg:space-x-2">
+          {/* Middle Navigation — Maximum FOUR Centered Items */}
+          <nav
+            className="hidden md:flex items-center space-x-1 lg:space-x-2"
+            aria-label="Main Navigation"
+          >
             {navLinks.map((link) => {
               const isActive = pathname === link.href;
               return (
                 <Link
                   key={link.href}
                   href={link.href}
-                  className={`inline-flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  className={`relative inline-flex items-center px-3.5 py-2 text-xs lg:text-sm font-semibold transition-all duration-150 whitespace-nowrap rounded-lg ${
                     isActive
-                      ? "bg-civic-50 text-civic-700 font-semibold"
-                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                      ? "text-[#087F78] font-bold bg-[#087F78]/8"
+                      : "text-[#40536B] hover:text-[#102B4E] hover:bg-[#F4F8FC]"
                   }`}
                 >
-                  {link.icon}
-                  {link.label}
-                </Link>
-              );
-            })}
-
-            {/* Portals Dropdown / Separator */}
-            <div className="h-5 w-px bg-slate-200 mx-1" aria-hidden="true" />
-
-            {portalLinks.map((link) => {
-              const isActive = pathname.startsWith(link.href);
-              return (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className={`inline-flex items-center px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                    isActive
-                      ? "bg-slate-200 text-slate-900 font-semibold"
-                      : "text-slate-500 hover:text-slate-800 hover:bg-slate-100"
-                  }`}
-                >
-                  {link.icon}
-                  {link.label}
+                  <span>{link.label}</span>
+                  {isActive && (
+                    <span className="absolute bottom-0 left-2 right-2 h-[2.5px] bg-[#087F78] rounded-full" />
+                  )}
                 </Link>
               );
             })}
           </nav>
 
-          {/* Language Selector */}
-          <div className="flex items-center gap-2">
-            <div className="relative inline-flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-              <Languages className="w-4 h-4 text-slate-500 ml-2 mr-1 shrink-0" aria-hidden="true" />
-              {locales.map((l) => (
-                <button
-                  key={l}
-                  type="button"
-                  onClick={() => handleLocaleChange(l)}
-                  aria-pressed={locale === l}
-                  className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
-                    locale === l
-                      ? "bg-white text-civic-700 shadow-sm font-bold"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  {localeNames[l]}
-                </button>
-              ))}
-            </div>
+          {/* Right Side: Language Icon & Account Icon */}
+          <div className="hidden sm:flex items-center gap-2.5 shrink-0">
+            {/* Single Globe Icon Dropdown */}
+            <LanguageSelector />
 
-            {/* Mobile menu button */}
+            {/* Single Elegant Account Icon Dropdown */}
+            <AccountMenu />
+          </div>
+
+          {/* Mobile Controls (below sm breakpoint) */}
+          <div className="flex sm:hidden items-center gap-2">
+            <LanguageSelector />
+            <AccountMenu />
             <button
-              onClick={() => setIsOpen(!isOpen)}
               type="button"
-              className="md:hidden inline-flex items-center justify-center p-2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 focus:outline-none min-h-touch min-w-touch"
-              aria-controls="mobile-menu"
-              aria-expanded={isOpen}
+              onClick={() => setMobileMenuOpen((prev) => !prev)}
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-[#102B4E] hover:bg-slate-100 border border-[#DCE5EE] transition-colors focus:outline-none"
+              aria-label="Toggle navigation menu"
+              aria-expanded={mobileMenuOpen}
             >
-              <span className="sr-only">Open main menu</span>
-              {isOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
           </div>
         </div>
       </div>
 
-      {/* Mobile menu */}
-      {isOpen && (
-        <div className="md:hidden border-b border-slate-200 bg-white px-4 pt-2 pb-4 space-y-1 shadow-lg" id="mobile-menu">
-          {navLinks.map((link) => {
-            const isActive = pathname === link.href;
-            return (
-              <Link
-                key={link.href}
-                href={link.href}
-                onClick={() => setIsOpen(false)}
-                className={`flex items-center px-3 py-2.5 rounded-lg text-base font-medium min-h-touch ${
-                  isActive
-                    ? "bg-civic-50 text-civic-700 font-semibold"
-                    : "text-slate-700 hover:bg-slate-100"
-                }`}
-              >
-                {link.icon}
-                {link.label}
-              </Link>
-            );
-          })}
-
-          <div className="pt-2 pb-1 border-t border-slate-100">
-            <p className="px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              Staff & Administration
-            </p>
+      {/* Mobile Drawer Navigation */}
+      {mobileMenuOpen && (
+        <div className="md:hidden border-t border-[#DCE5EE] bg-white px-4 pt-3 pb-5 space-y-3 shadow-lg animate-in fade-in slide-in-from-top-2 duration-150">
+          <div className="space-y-1">
+            {navLinks.map((link) => {
+              const isActive = pathname === link.href;
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`flex items-center px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                    isActive
+                      ? "bg-[#087F78]/10 text-[#087F78] font-bold"
+                      : "text-[#102B4E] hover:bg-[#F4F8FC]"
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              );
+            })}
           </div>
-
-          {portalLinks.map((link) => {
-            const isActive = pathname.startsWith(link.href);
-            return (
-              <Link
-                key={link.href}
-                href={link.href}
-                onClick={() => setIsOpen(false)}
-                className={`flex items-center px-3 py-2 rounded-lg text-sm font-medium min-h-touch ${
-                  isActive
-                    ? "bg-slate-100 text-slate-900 font-semibold"
-                    : "text-slate-600 hover:bg-slate-100"
-                }`}
-              >
-                {link.icon}
-                {link.label}
-              </Link>
-            );
-          })}
         </div>
       )}
     </header>

@@ -135,9 +135,9 @@ export default function StaffPage() {
         setInboxItems([
           {
             submission_id: "sub-101",
-            tracking_id: "FP-2026-00412",
+            tracking_id: "GS-2026-00412",
             issue_id: "issue-101",
-            reference_number: "FP-2026-00412",
+            reference_number: "GS-2026-00412",
             category: "road_damage",
             description: "Deep pothole near primary school gate causing accidents",
             status: "SUBMITTED",
@@ -149,9 +149,9 @@ export default function StaffPage() {
           },
           {
             submission_id: "sub-102",
-            tracking_id: "FP-2026-00418",
+            tracking_id: "GS-2026-00418",
             issue_id: "issue-102",
-            reference_number: "FP-2026-00418",
+            reference_number: "GS-2026-00418",
             category: "water_leak",
             description: "Drinking water pipe cracked and leaking continuously",
             status: "SUBMITTED",
@@ -171,7 +171,7 @@ export default function StaffPage() {
         setResolutionQueue([
           {
             issue_id: "issue-201",
-            reference_number: "FP-2026-00398",
+            reference_number: "GS-2026-00398",
             category: "water_leak",
             village_name: "Gowdanahalli",
             ward_name: "Ward 1 (Post Office Area)",
@@ -194,7 +194,7 @@ export default function StaffPage() {
           setDuplicateCandidates([
             {
               issue_id: "issue-101",
-              reference_number: "FP-2026-00412",
+              reference_number: "GS-2026-00412",
               category: "road_damage",
               status: "UNDER_REVIEW",
               distance_meters: 18.5,
@@ -215,7 +215,7 @@ export default function StaffPage() {
         setDuplicateCandidates([
           {
             issue_id: "issue-101",
-            reference_number: "FP-2026-00412",
+            reference_number: "GS-2026-00412",
             category: "road_damage",
             status: "UNDER_REVIEW",
             distance_meters: 18.5,
@@ -242,14 +242,14 @@ export default function StaffPage() {
             {
               candidate_id: "rec-101",
               new_issue_id: "issue-102",
-              new_issue_ref: "FP-2026-00418",
+              new_issue_ref: "GS-2026-00418",
               prior_issue_id: "issue-201",
-              prior_issue_ref: "FP-2026-00398",
+              prior_issue_ref: "GS-2026-00398",
               category: "water_leak",
               distance_meters: 14.2,
               days_since_resolution: 38,
               decision: "PENDING",
-              notes: "Reported 14m from prior resolved defect FP-2026-00398 (38 days ago)",
+              notes: "Reported 14m from prior resolved defect GS-2026-00398 (38 days ago)",
               created_at: new Date(Date.now() - 3600000 * 2).toISOString(),
             },
           ]);
@@ -259,14 +259,14 @@ export default function StaffPage() {
           {
             candidate_id: "rec-101",
             new_issue_id: "issue-102",
-            new_issue_ref: "FP-2026-00418",
+            new_issue_ref: "GS-2026-00418",
             prior_issue_id: "issue-201",
-            prior_issue_ref: "FP-2026-00398",
+            prior_issue_ref: "GS-2026-00398",
             category: "water_leak",
             distance_meters: 14.2,
             days_since_resolution: 38,
             decision: "PENDING",
-            notes: "Reported 14m from prior resolved defect FP-2026-00398 (38 days ago)",
+            notes: "Reported 14m from prior resolved defect GS-2026-00398 (38 days ago)",
             created_at: new Date(Date.now() - 3600000 * 2).toISOString(),
           },
         ]);
@@ -296,9 +296,9 @@ export default function StaffPage() {
       setInboxItems([
         {
           submission_id: "sub-101",
-          tracking_id: "FP-2026-00412",
+          tracking_id: "GS-2026-00412",
           issue_id: "issue-101",
-          reference_number: "FP-2026-00412",
+          reference_number: "GS-2026-00412",
           category: "road_damage",
           description: "Deep pothole near primary school gate causing accidents",
           status: "SUBMITTED",

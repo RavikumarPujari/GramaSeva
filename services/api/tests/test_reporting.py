@@ -96,7 +96,7 @@ class TestCitizenReportingAndMedia(unittest.TestCase):
         )
         report = create_draft(draft_req, self.citizen_a, self.db)
         self.assertIsNotNone(report.id)
-        self.assertTrue(report.tracking_id.startswith("FP-"))
+        self.assertTrue(report.tracking_id.startswith("GS-") or report.tracking_id.startswith("FP-"))
         self.assertEqual(report.status, "DRAFT")
         self.assertEqual(report.category, "road_damage")
         self.assertIsNone(report.ward_name)

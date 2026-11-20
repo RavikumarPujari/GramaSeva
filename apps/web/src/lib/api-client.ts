@@ -40,8 +40,14 @@ export class ApiClient {
       ...(headers as Record<string, string>),
     };
 
-    if (token) {
-      mergedHeaders["Authorization"] = `Bearer ${token}`;
+    const effectiveToken =
+      token ||
+      (typeof window !== "undefined"
+        ? localStorage.getItem("gramaseva_token") || localStorage.getItem("access_token")
+        : undefined);
+
+    if (effectiveToken) {
+      mergedHeaders["Authorization"] = `Bearer ${effectiveToken}`;
     }
 
     try {

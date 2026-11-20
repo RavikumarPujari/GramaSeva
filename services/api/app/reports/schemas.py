@@ -26,6 +26,8 @@ class DraftUpdateRequest(BaseModel):
 class SubmitReportRequest(BaseModel):
     idempotency_key: Optional[str] = None
     is_anonymous: Optional[bool] = False
+    duplicate_decision: Optional[str] = None  # CONFIRMED_DUPLICATE, REJECTED_DIFFERENT, UNCERTAIN_NEEDS_REVIEW
+    duplicate_target_issue_id: Optional[str] = None
 
 class MediaAssetResponse(BaseModel):
     id: str
@@ -51,6 +53,7 @@ class DuplicateSuggestionItem(BaseModel):
     ward_name: Optional[str] = None
     composite_score: float
     explanation: str
+    target_media_id: Optional[str] = None
     created_at: datetime
 
 class ReportResponse(BaseModel):

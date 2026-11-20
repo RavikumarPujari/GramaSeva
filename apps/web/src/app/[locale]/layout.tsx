@@ -1,15 +1,15 @@
 import React from "react";
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getMessages, unstable_setRequestLocale as setRequestLocale } from "next-intl/server";
 import { NextIntlClientProvider } from "next-intl";
-import { locales, type Locale } from "@/i18n";
+import { defaultLocale, locales, type Locale } from "@/i18n";
 import { Navbar } from "@/components/layout/Navbar";
 import { Footer } from "@/components/layout/Footer";
 import "../globals.css";
 
 export const metadata: Metadata = {
-  title: "FixProof — Verified Civic Complaint & Repair Tracking",
+  title: "GramaSeva — Verified Civic Complaint & Repair Tracking",
   description:
     "Village-first civic technology pilot for Gram Panchayats and municipal wards. Report issues, track verified repairs with photo evidence, and ensure independent review.",
 };
@@ -28,6 +28,21 @@ export default async function LocaleLayout({
   params: { locale },
 }: RootLayoutProps) {
   if (!locales.includes(locale as Locale)) {
+    const knownRoutes = [
+      "report",
+      "track",
+      "public",
+      "admin",
+      "staff",
+      "worker",
+      "login",
+      "register",
+      "my-reports",
+      "ai-processing",
+    ];
+    if (knownRoutes.includes(locale)) {
+      redirect(`/${defaultLocale}/${locale}`);
+    }
     notFound();
   }
 

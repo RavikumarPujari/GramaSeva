@@ -9,7 +9,6 @@ import {
   CheckCircle2,
   Camera,
   Layers,
-  MapPin,
   ShieldCheck,
   Building2,
   Droplets,
@@ -18,10 +17,11 @@ import {
   Dam,
   Construction,
   ArrowRight,
+  MapPin,
+  Sparkles,
 } from "lucide-react";
-import { Button } from "@/components/ui/Button";
-import { Card, CardContent } from "@/components/ui/Card";
-import { Badge } from "@/components/ui/Badge";
+import { Card } from "@/components/ui/Card";
+import { WasteManagementSection } from "@/components/ui/WasteManagementSection";
 
 interface HomePageProps {
   params: { locale: string };
@@ -30,163 +30,235 @@ interface HomePageProps {
 export default function HomePage({ params: { locale } }: HomePageProps) {
   setRequestLocale(locale);
   const tLanding = useTranslations("landing");
-  const tNav = useTranslations("navigation");
-  const tCommon = useTranslations("common");
   const tCat = useTranslations("categories");
 
   const categories = [
     {
       id: "road_damage",
       name: tCat("road_damage"),
-      icon: <Construction className="w-6 h-6 text-civic-600" />,
-      desc: "Potholes, cracks, and surface damage",
+      icon: <Construction className="w-5 h-5 text-[#087F78]" />,
+      desc: "Potholes, cracks, and road surface damage",
     },
     {
       id: "water_leak",
       name: tCat("water_leak"),
-      icon: <Droplets className="w-6 h-6 text-sky-600" />,
-      desc: "Visible pipe leaks and drinking water overflow",
+      icon: <Droplets className="w-5 h-5 text-sky-600" />,
+      desc: "Visible pipe leaks and drinking water supply issues",
     },
     {
       id: "garbage",
       name: tCat("garbage"),
-      icon: <Trash2 className="w-6 h-6 text-amber-600" />,
-      desc: "Uncollected public waste and littering",
+      icon: <Trash2 className="w-5 h-5 text-amber-600" />,
+      desc: "Overflowing bins, litter, and uncollected waste",
     },
     {
       id: "drainage",
       name: tCat("drainage"),
-      icon: <Dam className="w-6 h-6 text-emerald-600" />,
-      desc: "Blocked culverts, drains, and waterlogging",
+      icon: <Dam className="w-5 h-5 text-emerald-600" />,
+      desc: "Blocked culverts, drains, and road waterlogging",
     },
     {
       id: "streetlight",
       name: tCat("streetlight"),
-      icon: <Lightbulb className="w-6 h-6 text-yellow-600" />,
-      desc: "Non-functioning or broken public lighting",
+      icon: <Lightbulb className="w-5 h-5 text-yellow-600" />,
+      desc: "Non-functioning, dark, or broken streetlight poles",
     },
     {
       id: "public_facility",
       name: tCat("public_facility"),
-      icon: <Building2 className="w-6 h-6 text-indigo-600" />,
-      desc: "Community hall, bus stop, or toilet damage",
+      icon: <Building2 className="w-5 h-5 text-[#102B4E]" />,
+      desc: "Community hall, bus stop, or sanitation facility damage",
     },
   ];
 
   return (
-    <div className="flex flex-col min-h-screen">
-      {/* Hero Section */}
-      <section className="bg-gradient-to-b from-civic-50/70 via-white to-slate-50 border-b border-slate-200 py-16 md:py-24">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-3xl mx-auto space-y-6">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-civic-100 text-civic-800 text-xs sm:text-sm font-semibold border border-civic-200">
-              <ShieldCheck className="w-4 h-4 text-civic-600" />
-              <span>Village & Ward Civic Accountability Pilot</span>
+    <div className="flex flex-col min-h-screen bg-[#F4F8FC]">
+      {/* 1. Hero Section — Modern Split Layout with Village Background */}
+      <section className="relative overflow-hidden bg-[#F4F8FC] border-b border-[#DCE5EE] pt-8 pb-12 sm:pt-12 sm:pb-16 lg:pt-16 lg:pb-20">
+        {/* Subtle Decorative Village Civic Background Illustration */}
+        <div className="absolute inset-0 pointer-events-none select-none overflow-hidden opacity-35" aria-hidden="true">
+          <svg
+            className="w-full h-full object-cover"
+            viewBox="0 0 1440 480"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            preserveAspectRatio="none"
+          >
+            {/* Distant Hills */}
+            <path
+              d="M0 340 C 240 280, 480 360, 720 310 C 960 260, 1200 340, 1440 290 L 1440 480 L 0 480 Z"
+              fill="#E2EDF8"
+            />
+            {/* Midground Village Outlines */}
+            <path
+              d="M0 380 C 280 330, 560 410, 840 360 C 1120 310, 1320 380, 1440 350 L 1440 480 L 0 480 Z"
+              fill="#D4E4F4"
+            />
+            {/* Distant Trees & Huts Silhouette */}
+            <g opacity="0.35" fill="#B9D5EE">
+              {/* Hut 1 */}
+              <polygon points="120,360 145,335 170,360" />
+              <rect x="130" y="360" width="30" height="20" />
+              {/* Tree 1 */}
+              <circle cx="210" cy="350" r="18" />
+              <rect x="207" y="360" width="6" height="20" fill="#A8C9E8" />
+              {/* Hut 2 */}
+              <polygon points="1120,335 1145,310 1170,335" />
+              <rect x="1130" y="335" width="30" height="25" />
+              {/* Tree 2 */}
+              <circle cx="1210" cy="320" r="22" />
+              <rect x="1207" y="335" width="6" height="25" fill="#A8C9E8" />
+            </g>
+          </svg>
+        </div>
+
+        {/* Subtle Micro-Dot Overlay */}
+        <div
+          className="absolute inset-0 opacity-[0.03] pointer-events-none"
+          style={{
+            backgroundImage: `radial-gradient(#102B4E 1px, transparent 1px)`,
+            backgroundSize: "24px 24px",
+          }}
+          aria-hidden="true"
+        />
+
+        <div className="relative max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 xl:gap-16 items-center">
+            {/* Left Column (7 cols): Heading, Subtitle, Balanced CTAs */}
+            <div className="lg:col-span-7 space-y-5 sm:space-y-6 text-left">
+              {/* Hero Pilot Badge */}
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#087F78]/10 text-[#087F78] text-xs sm:text-sm font-semibold border border-[#087F78]/25 shadow-2xs">
+                <ShieldCheck className="w-4 h-4 text-[#087F78]" aria-hidden="true" />
+                <span>Village & Ward Civic Accountability Platform</span>
+              </div>
+
+              {/* Controlled Max-Width Heading */}
+              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-[#102B4E] tracking-tight leading-[1.18]">
+                {tLanding("heroTitle") || "Report local issues. Track real fixes."}
+              </h1>
+
+              {/* Readable Description */}
+              <p className="text-sm sm:text-base lg:text-lg text-[#40536B] leading-relaxed max-w-2xl">
+                {tLanding("heroSubtitle") ||
+                  "Report problems in your village, such as damaged roads, water supply issues, drainage overflows and streetlight failures. Every repair requires verified inspection before closure."}
+              </p>
+
+              {/* Two Main Uniform Balanced CTA Buttons */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2 max-w-lg w-full">
+                {/* Primary CTA: Report a Problem */}
+                <Link href={`/${locale}/report`} className="flex-1">
+                  <button
+                    type="button"
+                    className="w-full h-12 px-6 rounded-xl bg-[#087F78] hover:bg-[#066B65] text-white font-semibold text-sm sm:text-base flex items-center justify-center gap-2 shadow-xs hover:shadow-sm transition-all whitespace-nowrap min-h-touch active:scale-[0.99]"
+                  >
+                    <FilePlus className="w-4 h-4 shrink-0" aria-hidden="true" />
+                    <span>Report a Problem</span>
+                  </button>
+                </Link>
+
+                {/* Secondary CTA: Track a Report */}
+                <Link href={`/${locale}/track`} className="flex-1">
+                  <button
+                    type="button"
+                    className="w-full h-12 px-6 rounded-xl bg-white hover:bg-[#F4F8FC] text-[#102B4E] border border-[#DCE5EE] hover:border-[#102B4E]/30 font-semibold text-sm sm:text-base flex items-center justify-center gap-2 shadow-2xs transition-all whitespace-nowrap min-h-touch active:scale-[0.99]"
+                  >
+                    <Search className="w-4 h-4 shrink-0 text-[#087F78]" aria-hidden="true" />
+                    <span>Track a Report</span>
+                  </button>
+                </Link>
+              </div>
+
+              {/* Secondary Dashboard Transparency Link */}
+              <div className="pt-1">
+                <Link
+                  href={`/${locale}/public`}
+                  className="inline-flex items-center text-xs sm:text-sm font-semibold text-[#40536B] hover:text-[#087F78] transition-colors group"
+                >
+                  <Eye className="w-4 h-4 mr-1.5 text-[#087F78] group-hover:scale-110 transition-transform" aria-hidden="true" />
+                  <span>View Public Accountability Map & Statistics</span>
+                  <ArrowRight className="w-3.5 h-3.5 ml-1 text-[#087F78] group-hover:translate-x-0.5 transition-transform" aria-hidden="true" />
+                </Link>
+              </div>
+
+              {/* Three Civic Guarantee Badges */}
+              <div className="pt-2 flex flex-wrap items-center gap-4 text-xs font-medium text-[#40536B] border-t border-[#DCE5EE]/70">
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" aria-hidden="true" />
+                  <span>GPS-Verified Locations</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-[#087F78]" aria-hidden="true" />
+                  <span>Assigned to Ward Teams</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-sky-600" aria-hidden="true" />
+                  <span>Photographic Repair Proof</span>
+                </div>
+              </div>
             </div>
 
-            <h1 className="text-3xl sm:text-5xl md:text-6xl font-extrabold text-slate-900 tracking-tight leading-tight">
-              {tLanding("heroTitle")}
-            </h1>
+            {/* Right Column (5 cols): Curved Softly Rounded Frame with Authentic Photograph */}
+            <div className="lg:col-span-5">
+              <div className="relative rounded-2xl sm:rounded-3xl shadow-xl ring-1 ring-slate-200/90 overflow-hidden bg-white group">
+                {/* Realistic Photograph of Sanitation Worker with Segregated Wet & Dry Bins */}
+                <img
+                  src="/sanitation-worker-bins.png"
+                  alt="Indian village sanitation worker with segregated green wet-waste and blue dry-waste bins"
+                  className="w-full h-[380px] sm:h-[440px] lg:h-[480px] xl:h-[520px] object-cover group-hover:scale-[1.02] transition-transform duration-500"
+                  loading="eager"
+                />
 
-            <p className="text-base sm:text-xl text-slate-600 leading-relaxed max-w-2xl mx-auto">
-              {tLanding("heroSubtitle")}
-            </p>
+                {/* Subtle Gradient Vignette at Bottom */}
+                <div className="absolute inset-0 bg-gradient-to-t from-[#102B4E]/80 via-transparent to-transparent pointer-events-none" />
 
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-4">
-              <Link href={`/${locale}/report`} className="w-full sm:w-auto">
-                <Button
-                  size="lg"
-                  variant="primary"
-                  className="w-full sm:w-auto shadow-md"
-                  leftIcon={<FilePlus className="w-5 h-5" />}
-                >
-                  {tLanding("reportButton")}
-                </Button>
-              </Link>
-              <Link href={`/${locale}/my-reports`} className="w-full sm:w-auto">
-                <Button
-                  size="lg"
-                  variant="secondary"
-                  className="w-full sm:w-auto"
-                  leftIcon={<Search className="w-5 h-5" />}
-                >
-                  {tLanding("trackButton")}
-                </Button>
-              </Link>
-              <Link href={`/${locale}/public`} className="w-full sm:w-auto">
-                <Button
-                  size="lg"
-                  variant="outline"
-                  className="w-full sm:w-auto"
-                  leftIcon={<Eye className="w-5 h-5" />}
-                >
-                  {tLanding("publicButton")}
-                </Button>
-              </Link>
-            </div>
-
-            {/* Quick trust metrics */}
-            <div className="pt-10 grid grid-cols-2 md:grid-cols-4 gap-4 text-left">
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Pilot Scope
-                </p>
-                <p className="text-xl font-bold text-slate-900 mt-0.5">Village Wards</p>
-                <p className="text-xs text-slate-500 mt-1">First-class administrative units</p>
-              </div>
-
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Resolution Rule
-                </p>
-                <p className="text-xl font-bold text-slate-900 mt-0.5">Independent Review</p>
-                <p className="text-xs text-slate-500 mt-1">Workers cannot self-approve</p>
-              </div>
-
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Languages
-                </p>
-                <p className="text-xl font-bold text-slate-900 mt-0.5">EN · ಕನ್ನಡ · HI</p>
-                <p className="text-xs text-slate-500 mt-1">Fully accessible in 3 languages</p>
-              </div>
-
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Citizen Privacy
-                </p>
-                <p className="text-xl font-bold text-slate-900 mt-0.5">Sanitized & Safe</p>
-                <p className="text-xs text-slate-500 mt-1">Zero personal contacts exposed</p>
+                {/* Dignified Caption Badge Overlay */}
+                <div className="absolute bottom-4 left-4 right-4 bg-white/95 backdrop-blur-md p-3.5 rounded-2xl border border-white/80 shadow-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 shadow-xs animate-pulse" />
+                      <p className="text-xs font-bold text-[#102B4E]">Verified Civic Sanitation & Segregation</p>
+                    </div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      Active Pilot
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[#40536B] mt-1 leading-snug">
+                    Connecting village residents, ward sanitation teams, and verified cleanup inspections.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Categories Grid */}
-      <section className="py-16 bg-white border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col md:flex-row md:items-end justify-between mb-10">
+      {/* 2. Waste Management & Civic Cleanliness Section (Replaces lower 4 generic cards) */}
+      <WasteManagementSection />
+
+      {/* 3. Problem Categories Grid */}
+      <section className="py-14 sm:py-18 bg-[#F4F8FC]">
+        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12">
+          <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 sm:mb-10">
             <div>
-              <Badge variant="info" size="sm" className="mb-2">
-                Citizen Reporting
-              </Badge>
-              <h2 className="text-2xl sm:text-3xl font-bold text-slate-900">
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#087F78]/10 text-[#087F78] mb-2 border border-[#087F78]/20">
+                Civic Categories
+              </span>
+              <h2 className="text-2xl sm:text-3xl font-extrabold text-[#102B4E]">
                 What would you like to report?
               </h2>
-              <p className="text-slate-600 mt-1 text-sm sm:text-base">
-                Select an infrastructure category to start with photographic evidence.
+              <p className="text-[#40536B] mt-1 text-sm sm:text-base">
+                Select an infrastructure problem category to start reporting with photographic proof.
               </p>
             </div>
             <Link
               href={`/${locale}/report`}
-              className="mt-4 md:mt-0 inline-flex items-center text-sm font-semibold text-civic-700 hover:text-civic-800"
+              className="mt-4 md:mt-0 inline-flex items-center text-sm font-bold text-[#087F78] hover:text-[#066B65] transition-colors"
             >
               Start general report <ArrowRight className="w-4 h-4 ml-1" />
             </Link>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {categories.map((cat) => (
               <Link
                 key={cat.id}
@@ -195,17 +267,19 @@ export default function HomePage({ params: { locale } }: HomePageProps) {
               >
                 <Card
                   hoverEffect
-                  className="h-full group-hover:border-civic-400 group-hover:shadow-md transition-all p-5"
+                  className="h-full bg-white border border-[#DCE5EE] hover:border-[#087F78]/60 hover:shadow-sm transition-all p-5 rounded-2xl"
                 >
                   <div className="flex items-start gap-4">
-                    <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 group-hover:bg-civic-50 group-hover:border-civic-200 transition-colors">
+                    <div className="p-3 rounded-xl bg-[#F4F8FC] border border-[#DCE5EE] group-hover:bg-[#087F78]/10 group-hover:border-[#087F78]/30 transition-colors">
                       {cat.icon}
                     </div>
                     <div className="flex-1">
-                      <h3 className="font-semibold text-slate-900 text-base group-hover:text-civic-700 transition-colors">
+                      <h3 className="font-bold text-[#102B4E] text-base group-hover:text-[#087F78] transition-colors">
                         {cat.name}
                       </h3>
-                      <p className="text-sm text-slate-500 mt-1">{cat.desc}</p>
+                      <p className="text-xs sm:text-sm text-[#40536B] mt-1 leading-relaxed">
+                        {cat.desc}
+                      </p>
                     </div>
                   </div>
                 </Card>
@@ -215,68 +289,75 @@ export default function HomePage({ params: { locale } }: HomePageProps) {
         </div>
       </section>
 
-      {/* How It Works Section */}
-      <section className="py-16 bg-slate-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-2xl mx-auto mb-12">
-            <h2 className="text-2xl sm:text-3xl font-bold text-slate-900">
-              {tLanding("howItWorksTitle")}
+      {/* 4. How It Works Section */}
+      <section className="py-14 sm:py-18 bg-white border-t border-[#DCE5EE]">
+        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12">
+          <div className="text-center max-w-2xl mx-auto mb-10 sm:mb-12 space-y-2">
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#102B4E]/10 text-[#102B4E] border border-[#102B4E]/20">
+              Audit Process
+            </span>
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-[#102B4E]">
+              {tLanding("howItWorksTitle") || "How GramaSeva Works"}
             </h2>
-            <p className="text-slate-600 mt-2 text-sm sm:text-base">
-              From first citizen report to independently reviewed resolution — every step is auditable.
+            <p className="text-[#40536B] text-sm sm:text-base">
+              From first citizen report to independently reviewed resolution — every step is verified.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
             {/* Step 1 */}
-            <Card className="p-6 bg-white relative">
-              <div className="w-10 h-10 rounded-lg bg-civic-100 text-civic-700 flex items-center justify-center font-bold text-lg mb-4">
+            <Card className="p-5 bg-[#F4F8FC] border border-[#DCE5EE] rounded-2xl shadow-2xs">
+              <div className="w-10 h-10 rounded-xl bg-[#087F78]/15 text-[#087F78] flex items-center justify-center font-bold text-lg mb-4">
                 <Camera className="w-5 h-5" />
               </div>
-              <h3 className="font-bold text-slate-900 text-lg mb-2">
-                {tLanding("step1Title")}
+              <h3 className="font-bold text-[#102B4E] text-base mb-1.5">
+                {tLanding("step1Title") || "1. Report with Photo"}
               </h3>
-              <p className="text-sm text-slate-600 leading-relaxed">
-                {tLanding("step1Desc")}
+              <p className="text-xs sm:text-sm text-[#40536B] leading-relaxed">
+                {tLanding("step1Desc") ||
+                  "Upload a photo of damaged roads, water leaks, or waste. Select your village or pin the location on the map."}
               </p>
             </Card>
 
             {/* Step 2 */}
-            <Card className="p-6 bg-white relative">
-              <div className="w-10 h-10 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-lg mb-4">
+            <Card className="p-5 bg-[#F4F8FC] border border-[#DCE5EE] rounded-2xl shadow-2xs">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold text-lg mb-4">
                 <Layers className="w-5 h-5" />
               </div>
-              <h3 className="font-bold text-slate-900 text-lg mb-2">
-                {tLanding("step2Title")}
+              <h3 className="font-bold text-[#102B4E] text-base mb-1.5">
+                {tLanding("step2Title") || "2. Triage & Assignment"}
               </h3>
-              <p className="text-sm text-slate-600 leading-relaxed">
-                {tLanding("step2Desc")}
+              <p className="text-xs sm:text-sm text-[#40536B] leading-relaxed">
+                {tLanding("step2Desc") ||
+                  "Panchayat reviewers inspect the issue with AI advisory checks, assign priority, and route to the field team."}
               </p>
             </Card>
 
             {/* Step 3 */}
-            <Card className="p-6 bg-white relative">
-              <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-lg mb-4">
+            <Card className="p-5 bg-[#F4F8FC] border border-[#DCE5EE] rounded-2xl shadow-2xs">
+              <div className="w-10 h-10 rounded-xl bg-[#102B4E]/10 text-[#102B4E] flex items-center justify-center font-bold text-lg mb-4">
                 <Construction className="w-5 h-5" />
               </div>
-              <h3 className="font-bold text-slate-900 text-lg mb-2">
-                {tLanding("step3Title")}
+              <h3 className="font-bold text-[#102B4E] text-base mb-1.5">
+                {tLanding("step3Title") || "3. Work & Repair Proof"}
               </h3>
-              <p className="text-sm text-slate-600 leading-relaxed">
-                {tLanding("step3Desc")}
+              <p className="text-xs sm:text-sm text-[#40536B] leading-relaxed">
+                {tLanding("step3Desc") ||
+                  "Field workers carry out the physical repair and upload verified photo evidence along with current GPS coordinates."}
               </p>
             </Card>
 
             {/* Step 4 */}
-            <Card className="p-6 bg-white relative border-emerald-200 bg-emerald-50/20">
-              <div className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-lg mb-4">
+            <Card className="p-5 bg-emerald-50/40 border border-emerald-200 rounded-2xl shadow-2xs">
+              <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-lg mb-4">
                 <CheckCircle2 className="w-5 h-5" />
               </div>
-              <h3 className="font-bold text-slate-900 text-lg mb-2">
-                {tLanding("step4Title")}
+              <h3 className="font-bold text-[#102B4E] text-base mb-1.5">
+                {tLanding("step4Title") || "4. Verified Closure"}
               </h3>
-              <p className="text-sm text-slate-600 leading-relaxed">
-                {tLanding("step4Desc")}
+              <p className="text-xs sm:text-sm text-[#40536B] leading-relaxed">
+                {tLanding("step4Desc") ||
+                  "An authorized official independently confirms the before/after photos before the issue is marked 'Resolved'."}
               </p>
             </Card>
           </div>

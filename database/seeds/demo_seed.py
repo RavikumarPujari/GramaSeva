@@ -246,16 +246,23 @@ def seed_database():
         # 7. Seed Demo Users & Scoped Roles
         default_pwd_hash = hash_password("DemoPassword123!")
 
-        # 7a. Admin
+        # 7a. Admin & Supervisor
         admin_profile = Profile(
             email="admin@fixproof.org",
             password_hash=default_pwd_hash,
             full_name="Platform Administrator (Demo)",
             preferred_locale="en",
         )
-        db.add(admin_profile)
+        supervisor_profile = Profile(
+            email="supervisor.mandya@fixproof.org",
+            password_hash=default_pwd_hash,
+            full_name="Mandya Ward Supervisor (Demo)",
+            preferred_locale="en",
+        )
+        db.add_all([admin_profile, supervisor_profile])
         db.flush()
         db.add(RoleAssignment(profile_id=admin_profile.id, role="admin", is_active=True))
+        db.add(RoleAssignment(profile_id=supervisor_profile.id, role="admin", is_active=True))
 
         # 7b. Reviewer 1 (Scoped to Gowdanahalli GP)
         rev1_profile = Profile(
