@@ -40,6 +40,7 @@ class StaffInboxItem(BaseModel):
     locality_unit_id: Optional[str] = None
     submitted_at: datetime
     photos_count: int = 0
+    thumbnail_url: Optional[str] = None
 
 class ResolutionQueueItem(BaseModel):
     issue_id: str

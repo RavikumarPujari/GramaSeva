@@ -20,12 +20,21 @@ router = APIRouter(prefix="/admin", tags=["Super Admin Platform Governance"])
 class SuperAdminOverviewResponse(BaseModel):
     total_villages: int
     total_pdos: int
+    assigned_pdos: int
+    unassigned_pdos: int
+    villages_with_pdo: int
+    villages_without_pdo: int
     total_workers: int
     total_citizens: int
     total_complaints: int
-    resolved_complaints: int
     pending_complaints: int
+    under_review_complaints: int
+    approved_complaints: int
+    assigned_complaints: int
     in_progress_complaints: int
+    awaiting_verification_complaints: int
+    resolved_complaints: int
+    reopened_complaints: int
     system_health: str
     timestamp: str
 
@@ -38,13 +47,19 @@ class VillageItem(BaseModel):
     unit_type: str
     parent_id: Optional[str] = None
     parent_name: Optional[str] = None
+    taluk_name: Optional[str] = "Belagavi Taluk"
+    district_name: Optional[str] = "Belagavi District"
     is_active: bool
     assigned_pdo_id: Optional[str] = None
     assigned_pdo_name: Optional[str] = None
     assigned_pdo_email: Optional[str] = None
     boundary_geojson: Optional[str] = None
     total_complaints: int = 0
+    pending_complaints: int = 0
+    in_progress_complaints: int = 0
     resolved_complaints: int = 0
+    active_workers: int = 0
+    assignment_status: str = "ASSIGNED"
 
 class CreateVillageRequest(BaseModel):
     official_code: Optional[str] = None
@@ -55,6 +70,9 @@ class CreateVillageRequest(BaseModel):
     parent_id: Optional[str] = None
     boundary_geojson: Optional[str] = None
     assign_pdo_id: Optional[str] = None
+
+class AssignPDORequest(BaseModel):
+    pdo_id: str
 
 class UpdateVillageRequest(BaseModel):
     official_code: Optional[str] = None
@@ -106,7 +124,8 @@ def get_superadmin_overview(
     db: Session = Depends(get_db),
 ):
     """
-    Returns system-wide actual counts from PostgreSQL/SQLite. Real data only.
+    Returns system-wide actual counts from PostgreSQL. Real data only.
+    Reconciles exactly with underlying database records.
     """
     # Count Gram Panchayats and villages under Taluk
     taluk = db.query(LocalityUnit).filter(LocalityUnit.unit_type == "taluk").first()
@@ -117,13 +136,24 @@ def get_superadmin_overview(
     if taluk:
         villages_query = villages_query.filter(LocalityUnit.parent_id == taluk.id)
     total_villages = villages_query.count()
+    all_village_ids = [v.id for v in villages_query.all()]
 
-    # Count PDO accounts (role == 'reviewer')
-    total_pdos = (
+    # Count PDO accounts (role == 'reviewer' and is_active == True)
+    pdo_assignments = (
         db.query(RoleAssignment)
         .filter(RoleAssignment.role == "reviewer", RoleAssignment.is_active == True)
-        .count()
+        .all()
     )
+    total_pdos = len(pdo_assignments)
+    assigned_pdos = sum(1 for ra in pdo_assignments if ra.jurisdiction_unit_id is not None)
+    unassigned_pdos = total_pdos - assigned_pdos
+
+    # Villages with assigned primary PDO
+    assigned_village_ids = set(
+        ra.jurisdiction_unit_id for ra in pdo_assignments if ra.jurisdiction_unit_id in all_village_ids
+    )
+    villages_with_pdo = len(assigned_village_ids)
+    villages_without_pdo = max(0, total_villages - villages_with_pdo)
 
     # Count Workers
     total_workers = (
@@ -139,22 +169,36 @@ def get_superadmin_overview(
         .count()
     )
 
-    # Complaints Breakdown
+    # Complaints Breakdown directly by status
     all_issues = db.query(Issue).filter(Issue.status != "DRAFT").all()
     total_complaints = len(all_issues)
+    pending_complaints = sum(1 for i in all_issues if i.status == "SUBMITTED")
+    under_review_complaints = sum(1 for i in all_issues if i.status in ["UNDER_REVIEW", "NEEDS_INFORMATION"])
+    approved_complaints = sum(1 for i in all_issues if i.status == "APPROVED")
+    assigned_complaints = sum(1 for i in all_issues if i.status == "ASSIGNED")
+    in_progress_complaints = sum(1 for i in all_issues if i.status == "IN_PROGRESS")
+    awaiting_verification_complaints = sum(1 for i in all_issues if i.status in ["REPAIR_REPORTED", "AWAITING_VERIFICATION", "RESOLUTION_REVIEW"])
     resolved_complaints = sum(1 for i in all_issues if i.status == "RESOLVED")
-    pending_complaints = sum(1 for i in all_issues if i.status in ["SUBMITTED", "UNDER_REVIEW", "NEEDS_INFORMATION"])
-    in_progress_complaints = sum(1 for i in all_issues if i.status in ["ASSIGNED", "IN_PROGRESS", "REPAIR_REPORTED"])
+    reopened_complaints = sum(1 for i in all_issues if i.status in ["REOPENED", "CORRECTION_REQUIRED"])
 
     return SuperAdminOverviewResponse(
         total_villages=total_villages,
         total_pdos=total_pdos,
+        assigned_pdos=assigned_pdos,
+        unassigned_pdos=unassigned_pdos,
+        villages_with_pdo=villages_with_pdo,
+        villages_without_pdo=villages_without_pdo,
         total_workers=total_workers,
         total_citizens=total_citizens,
         total_complaints=total_complaints,
-        resolved_complaints=resolved_complaints,
         pending_complaints=pending_complaints,
+        under_review_complaints=under_review_complaints,
+        approved_complaints=approved_complaints,
+        assigned_complaints=assigned_complaints,
         in_progress_complaints=in_progress_complaints,
+        awaiting_verification_complaints=awaiting_verification_complaints,
+        resolved_complaints=resolved_complaints,
+        reopened_complaints=reopened_complaints,
         system_health="HEALTHY",
         timestamp=datetime.now(timezone.utc).isoformat(),
     )
@@ -169,6 +213,10 @@ def list_villages(
     Lists all villages/GPs with their assigned primary PDO and verified boundaries.
     """
     taluk = db.query(LocalityUnit).filter(LocalityUnit.unit_type == "taluk").first()
+    taluk_name = taluk.name_en if taluk else "Belagavi Taluk"
+    district = taluk.parent if (taluk and taluk.parent) else None
+    district_name = district.name_en if district else "Belagavi District"
+
     query = db.query(LocalityUnit).filter(
         LocalityUnit.is_active == True,
         LocalityUnit.unit_type.in_(["gram_panchayat", "village", "taluk"])
@@ -203,7 +251,11 @@ def list_villages(
 
         # Count complaints in this locality
         complaints_count = db.query(Issue).filter(Issue.locality_unit_id == u.id, Issue.status != "DRAFT").count()
+        pending_count = db.query(Issue).filter(Issue.locality_unit_id == u.id, Issue.status == "SUBMITTED").count()
+        in_prog_count = db.query(Issue).filter(Issue.locality_unit_id == u.id, Issue.status.in_(["UNDER_REVIEW", "ASSIGNED", "IN_PROGRESS", "REPAIR_REPORTED"])).count()
         resolved_count = db.query(Issue).filter(Issue.locality_unit_id == u.id, Issue.status == "RESOLVED").count()
+        active_workers_count = db.query(RoleAssignment).filter(RoleAssignment.role == "worker", RoleAssignment.jurisdiction_unit_id == u.id, RoleAssignment.is_active == True).count()
+        assignment_status = "ASSIGNED" if pdo_id else "UNASSIGNED"
 
         parent_name = u.parent.name_en if u.parent else None
 
@@ -217,13 +269,19 @@ def list_villages(
                 unit_type=u.unit_type,
                 parent_id=u.parent_id,
                 parent_name=parent_name,
+                taluk_name=taluk_name,
+                district_name=district_name,
                 is_active=u.is_active,
                 assigned_pdo_id=pdo_id,
                 assigned_pdo_name=pdo_name,
                 assigned_pdo_email=pdo_email,
                 boundary_geojson=u.boundary_geojson,
                 total_complaints=complaints_count,
+                pending_complaints=pending_count,
+                in_progress_complaints=in_prog_count,
                 resolved_complaints=resolved_count,
+                active_workers=active_workers_count,
+                assignment_status=assignment_status,
             )
         )
 
@@ -310,13 +368,19 @@ def create_village(
         name_hi=unit.name_hi,
         unit_type=unit.unit_type,
         parent_id=unit.parent_id,
+        taluk_name="Belagavi Taluk",
+        district_name="Belagavi District",
         is_active=unit.is_active,
         assigned_pdo_id=req.assign_pdo_id,
         assigned_pdo_name=pdo_name,
         assigned_pdo_email=pdo_email,
         boundary_geojson=unit.boundary_geojson,
         total_complaints=0,
+        pending_complaints=0,
+        in_progress_complaints=0,
         resolved_complaints=0,
+        active_workers=0,
+        assignment_status="ASSIGNED" if req.assign_pdo_id else "UNASSIGNED",
     )
 
 @router.patch("/villages/{village_id}", response_model=VillageItem)
@@ -403,7 +467,23 @@ def update_village(
     db.refresh(unit)
 
     complaints_count = db.query(Issue).filter(Issue.locality_unit_id == unit.id, Issue.status != "DRAFT").count()
+    pending_count = db.query(Issue).filter(Issue.locality_unit_id == unit.id, Issue.status == "SUBMITTED").count()
+    in_prog_count = db.query(Issue).filter(Issue.locality_unit_id == unit.id, Issue.status.in_(["UNDER_REVIEW", "ASSIGNED", "IN_PROGRESS", "REPAIR_REPORTED"])).count()
     resolved_count = db.query(Issue).filter(Issue.locality_unit_id == unit.id, Issue.status == "RESOLVED").count()
+    active_workers_count = db.query(RoleAssignment).filter(RoleAssignment.role == "worker", RoleAssignment.jurisdiction_unit_id == unit.id, RoleAssignment.is_active == True).count()
+
+    # If PDO wasn't changed in this request, look up existing primary PDO
+    if req.assign_pdo_id is None:
+        existing_pdo = (
+            db.query(RoleAssignment)
+            .filter(RoleAssignment.role == "reviewer", RoleAssignment.jurisdiction_unit_id == unit.id, RoleAssignment.is_active == True)
+            .order_by(RoleAssignment.is_primary.desc())
+            .first()
+        )
+        if existing_pdo and existing_pdo.profile:
+            pdo_id = existing_pdo.profile.id
+            pdo_name = existing_pdo.profile.full_name
+            pdo_email = existing_pdo.profile.email
 
     return VillageItem(
         id=unit.id,
@@ -413,14 +493,141 @@ def update_village(
         name_hi=unit.name_hi,
         unit_type=unit.unit_type,
         parent_id=unit.parent_id,
+        taluk_name="Belagavi Taluk",
+        district_name="Belagavi District",
         is_active=unit.is_active,
         assigned_pdo_id=pdo_id,
         assigned_pdo_name=pdo_name,
         assigned_pdo_email=pdo_email,
         boundary_geojson=unit.boundary_geojson,
         total_complaints=complaints_count,
+        pending_complaints=pending_count,
+        in_progress_complaints=in_prog_count,
         resolved_complaints=resolved_count,
+        active_workers=active_workers_count,
+        assignment_status="ASSIGNED" if pdo_id else "UNASSIGNED",
     )
+
+@router.post("/villages/{village_id}/assign-pdo", response_model=VillageItem)
+def assign_pdo_to_village(
+    village_id: str,
+    req: AssignPDORequest,
+    current_admin: Profile = Depends(require_roles("admin")),
+    db: Session = Depends(get_db),
+):
+    """Assigns or reassigns a primary PDO to a village with audit logging."""
+    return update_village(
+        village_id=village_id,
+        req=UpdateVillageRequest(assign_pdo_id=req.pdo_id),
+        current_admin=current_admin,
+        db=db,
+    )
+
+@router.delete("/villages/{village_id}/pdo", response_model=VillageItem)
+def unassign_pdo_from_village(
+    village_id: str,
+    current_admin: Profile = Depends(require_roles("admin")),
+    db: Session = Depends(get_db),
+):
+    """Unassigns any assigned PDO from this village."""
+    return update_village(
+        village_id=village_id,
+        req=UpdateVillageRequest(assign_pdo_id=""),
+        current_admin=current_admin,
+        db=db,
+    )
+
+@router.get("/villages/{village_id}/details")
+def get_village_details(
+    village_id: str,
+    current_admin: Profile = Depends(require_roles("admin")),
+    db: Session = Depends(get_db),
+):
+    """
+    Returns deep operational view of a specific village:
+    Assigned PDO, active field workers, and complaint records.
+    """
+    unit = db.query(LocalityUnit).filter(LocalityUnit.id == village_id).first()
+    if not unit:
+        raise HTTPException(status_code=404, detail="Village not found")
+
+    # Primary PDO
+    pdo_asgn = (
+        db.query(RoleAssignment)
+        .filter(
+            RoleAssignment.role == "reviewer",
+            RoleAssignment.jurisdiction_unit_id == unit.id,
+            RoleAssignment.is_active == True,
+        )
+        .order_by(RoleAssignment.is_primary.desc())
+        .first()
+    )
+    pdo_info = None
+    if pdo_asgn and pdo_asgn.profile:
+        pdo_info = {
+            "id": pdo_asgn.profile.id,
+            "full_name": pdo_asgn.profile.full_name,
+            "email": pdo_asgn.profile.email,
+            "phone_number": pdo_asgn.profile.phone_number,
+            "is_primary": pdo_asgn.is_primary,
+        }
+
+    # Active Workers
+    workers_asgns = (
+        db.query(RoleAssignment)
+        .filter(
+            RoleAssignment.role == "worker",
+            RoleAssignment.jurisdiction_unit_id == unit.id,
+            RoleAssignment.is_active == True,
+        )
+        .all()
+    )
+    workers = []
+    for w in workers_asgns:
+        if w.profile:
+            dept_name = w.department.name_en if w.department else "General Public Works"
+            workers.append({
+                "id": w.profile.id,
+                "full_name": w.profile.full_name,
+                "email": w.profile.email,
+                "phone_number": w.profile.phone_number,
+                "department": dept_name,
+            })
+
+    # Recent complaints in this village
+    issues = (
+        db.query(Issue)
+        .filter(Issue.locality_unit_id == unit.id, Issue.status != "DRAFT")
+        .order_by(Issue.created_at.desc())
+        .limit(20)
+        .all()
+    )
+    complaints = []
+    for iss in issues:
+        complaints.append({
+            "id": iss.id,
+            "reference_number": iss.reference_number,
+            "category": iss.category,
+            "status": iss.status,
+            "priority": iss.priority,
+            "created_at": iss.created_at.isoformat() if iss.created_at else None,
+            "resolved_at": iss.resolved_at.isoformat() if iss.resolved_at else None,
+            "assigned_worker_name": iss.assigned_worker.full_name if iss.assigned_worker else None,
+        })
+
+    return {
+        "id": unit.id,
+        "name_en": unit.name_en,
+        "name_kn": unit.name_kn,
+        "official_code": unit.official_code,
+        "unit_type": unit.unit_type,
+        "taluk_name": "Belagavi Taluk",
+        "district_name": "Belagavi District",
+        "assigned_pdo": pdo_info,
+        "workers": workers,
+        "complaints": complaints,
+        "total_complaints": len(issues),
+    }
 
 @router.get("/pdos", response_model=List[PDOItem])
 def list_pdos(

@@ -719,13 +719,27 @@ async def submit_report_atomic(
         except Exception as e:
             print("Locality coordinate resolution notice:", e)
 
-    # Fallback to default Belagavi Gram Panchayat (Peeranwadi or first available GP)
-    if not locality_unit_id:
-        def_gp = db.query(LocalityUnit).filter(LocalityUnit.name_en.ilike("%Peeranwadi%")).first()
-        if not def_gp:
-            def_gp = db.query(LocalityUnit).filter(LocalityUnit.unit_type.in_(["gram_panchayat", "village"])).first()
-        if def_gp:
-            locality_unit_id = def_gp.id
+    # Check whether the resolved locality has an assigned PDO
+    if locality_unit_id:
+        has_pdo = (
+            db.query(RoleAssignment)
+            .filter(
+                RoleAssignment.jurisdiction_unit_id == locality_unit_id,
+                RoleAssignment.role == "reviewer",
+                RoleAssignment.is_active == True,
+            )
+            .first()
+            is not None
+        )
+        if not has_pdo:
+            jurisdiction_status = "UNASSIGNED_JURISDICTION"
+        else:
+            jurisdiction_status = "VERIFIED"
+    else:
+        # Unknown locality: flag as UNASSIGNED_JURISDICTION, do NOT silently route to random PDO
+        jurisdiction_status = "UNASSIGNED_JURISDICTION"
+        location_conflict_flag = True
+        location_conflict_details = "Location coordinates or address outside registered Gram Panchayat jurisdictions."
 
     effective_village = confirmed_village or village_name or detected_village
     if not effective_village and locality_unit_id:

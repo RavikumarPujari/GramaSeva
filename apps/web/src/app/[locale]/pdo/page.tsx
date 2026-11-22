@@ -126,6 +126,8 @@ interface ComplaintRecord {
   is_guest?: boolean;
   location_method?: string;
   gps_accuracy?: number;
+  thumbnail_url?: string;
+  photo_url?: string;
   has_location_conflict?: boolean;
   jurisdiction_status?: string;
   location_conflict_details?: string;
@@ -389,6 +391,32 @@ export default function VillagePdoDashboard() {
       loadPdoData();
     } catch (err: any) {
       setError(err.message || "Failed to dispatch worker");
+    }
+  };
+
+  const getMediaUrl = (mediaIdOrPath?: string) => {
+    if (!mediaIdOrPath) return "";
+    if (mediaIdOrPath.startsWith("http://") || mediaIdOrPath.startsWith("https://")) {
+      return mediaIdOrPath;
+    }
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+    if (mediaIdOrPath.startsWith("/")) {
+      return `${apiBase.replace(/\/api\/v1\/?$/, "")}${mediaIdOrPath}`;
+    }
+    return `${apiBase}/public/media/${mediaIdOrPath}/view`;
+  };
+
+  // Direct PDO Accept Action for New Complaints
+  const handleDirectAcceptComplaint = async (complaintId: string, refNum?: string) => {
+    setIsProcessingAction(true);
+    try {
+      await apiClient.post(`/staff/issues/${complaintId}/confirm`);
+      setNotice(`Complaint ${refNum || complaintId} accepted and moved to Under Review.`);
+      await loadPdoData();
+    } catch (err: any) {
+      setError(err.message || "Failed to accept complaint");
+    } finally {
+      setIsProcessingAction(false);
     }
   };
 
@@ -1163,10 +1191,11 @@ export default function VillagePdoDashboard() {
                   <table className="w-full text-left text-xs">
                     <thead className="bg-[#F8FAFC] border-b border-[#DCE5EE] text-[#40536B] font-bold uppercase">
                       <tr>
+                        <th className="py-3 px-4">Photo</th>
                         <th className="py-3 px-4">Tracking ID</th>
                         <th className="py-3 px-4">Category & AI</th>
                         <th className="py-3 px-4">Description Preview</th>
-                        <th className="py-3 px-4">Ward / Location</th>
+                        <th className="py-3 px-4">Village / Location</th>
                         <th className="py-3 px-4">Citizen</th>
                         <th className="py-3 px-4">Submitted</th>
                         <th className="py-3 px-4">Status</th>
@@ -1177,6 +1206,22 @@ export default function VillagePdoDashboard() {
                     <tbody className="divide-y divide-[#DCE5EE]">
                       {displayedComplaints.map((comp) => (
                         <tr key={comp.id} className="hover:bg-[#F8FAFC] transition-colors">
+                          <td className="py-3.5 px-4">
+                            <div className="w-12 h-12 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center">
+                              {comp.thumbnail_url || (comp.before_photo_ids && comp.before_photo_ids.length > 0) ? (
+                                <img
+                                  src={comp.thumbnail_url || getMediaUrl(comp.before_photo_ids![0])}
+                                  alt={comp.category}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    (e.target as HTMLElement).style.display = "none";
+                                  }}
+                                />
+                              ) : (
+                                <Camera className="w-5 h-5 text-slate-400" />
+                              )}
+                            </div>
+                          </td>
                           <td className="py-3.5 px-4 font-bold text-[#102B4E]">
                             {comp.reference_number || comp.id.slice(0, 8)}
                           </td>
@@ -1195,15 +1240,30 @@ export default function VillagePdoDashboard() {
                             {comp.description || "Infrastructure defect report"}
                           </td>
                           <td className="py-3.5 px-4">
-                            <span className="font-semibold text-[#102B4E] block">{comp.ward_name || "General Ward"}</span>
+                            <span className="font-semibold text-[#102B4E] block">
+                              {comp.village_name || overview?.village_name || "Village GP"}
+                            </span>
+                            <span className="text-[10px] text-slate-500 block">
+                              {comp.ward_name || "General Jurisdiction"}
+                            </span>
                             {comp.latitude && (
-                              <span className="text-[10px] text-slate-400">
+                              <span className="text-[10px] text-slate-400 font-mono">
                                 {comp.latitude.toFixed(3)}, {comp.longitude?.toFixed(3)}
                               </span>
                             )}
                           </td>
                           <td className="py-3.5 px-4 text-[#102B4E]">
-                            {comp.citizen_name || "Resident"}
+                            <span className="font-semibold block">{comp.citizen_name || "Citizen Reporter"}</span>
+                            {comp.is_guest ? (
+                              <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                                Guest
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-slate-400">Verified Citizen</span>
+                            )}
+                            {comp.citizen_phone && (
+                              <span className="text-[10px] text-slate-400 block">{comp.citizen_phone}</span>
+                            )}
                           </td>
                           <td className="py-3.5 px-4 text-slate-400 whitespace-nowrap">
                             {new Date(comp.created_at).toLocaleDateString()}
@@ -1228,14 +1288,24 @@ export default function VillagePdoDashboard() {
                           <td className="py-3.5 px-4 text-[#40536B]">
                             {comp.assigned_worker_name || "Unassigned"}
                           </td>
-                          <td className="py-3.5 px-4 text-right space-x-2">
+                          <td className="py-3.5 px-4 text-right space-x-2 whitespace-nowrap">
                             <button
                               type="button"
                               onClick={() => setSelectedComplaint(comp)}
-                              className="font-bold text-[#087F78] hover:underline"
+                              className="px-2.5 py-1 rounded-lg border border-[#DCE5EE] bg-white hover:bg-slate-50 font-bold text-[#102B4E] text-xs shadow-2xs"
                             >
-                              Inspect Details
+                              View Details
                             </button>
+                            {(activeSection === "new_complaints" || comp.status === "SUBMITTED") && (
+                              <button
+                                type="button"
+                                disabled={isProcessingAction}
+                                onClick={() => handleDirectAcceptComplaint(comp.id, comp.reference_number)}
+                                className="px-3 py-1 rounded-lg bg-[#087F78] hover:bg-[#066B65] text-white font-bold text-xs shadow-2xs transition-colors"
+                              >
+                                Accept / Review
+                              </button>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -1659,7 +1729,7 @@ export default function VillagePdoDashboard() {
                     {selectedComplaint.before_photo_ids &&
                     selectedComplaint.before_photo_ids.length > 0 ? (
                       <img
-                        src={`http://localhost:8000/api/v1/public/media/${selectedComplaint.before_photo_ids[0]}/view`}
+                        src={getMediaUrl(selectedComplaint.before_photo_ids[0])}
                         alt="Citizen Before Evidence"
                         className="w-full h-36 object-cover rounded-xl border border-slate-200"
                         onError={(e) => {
@@ -1681,7 +1751,7 @@ export default function VillagePdoDashboard() {
                     {selectedComplaint.after_photo_ids &&
                     selectedComplaint.after_photo_ids.length > 0 ? (
                       <img
-                        src={`http://localhost:8000/api/v1/public/media/${selectedComplaint.after_photo_ids[0]}/view`}
+                        src={getMediaUrl(selectedComplaint.after_photo_ids[0])}
                         alt="Worker After Evidence"
                         className="w-full h-36 object-cover rounded-xl border border-slate-200"
                         onError={(e) => {

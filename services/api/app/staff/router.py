@@ -105,6 +105,19 @@ def get_reviewer_inbox(
             .count()
         )
 
+        before_media_asset = (
+            db.query(MediaAsset.id)
+            .filter(MediaAsset.submission_id == sub.id, MediaAsset.evidence_role == "CITIZEN_BEFORE")
+            .first()
+        )
+        if not before_media_asset:
+            before_media_asset = (
+                db.query(MediaAsset.id)
+                .filter(MediaAsset.issue_id == issue.id, MediaAsset.evidence_role == "CITIZEN_BEFORE")
+                .first()
+            )
+        thumb_url = f"/api/v1/public/media/{before_media_asset[0]}/view" if before_media_asset else None
+
         results.append(
             StaffInboxItem(
                 submission_id=sub.id,
@@ -120,6 +133,7 @@ def get_reviewer_inbox(
                 locality_unit_id=issue.locality_unit_id,
                 submitted_at=sub.created_at,
                 photos_count=photos_count,
+                thumbnail_url=thumb_url,
             )
         )
 
@@ -184,6 +198,8 @@ class StaffComplaintItem(BaseModel):
     is_guest: bool = False
     location_method: Optional[str] = None
     gps_accuracy: Optional[float] = None
+    thumbnail_url: Optional[str] = None
+    photo_url: Optional[str] = None
 
 
 @router.get("/all-complaints", response_model=List[StaffComplaintItem])
@@ -390,6 +406,8 @@ def get_all_complaints(
                 is_guest=sub.is_guest if (sub and sub.is_guest) else False,
                 location_method=sub.location_method if sub else None,
                 gps_accuracy=sub.gps_accuracy if sub else None,
+                thumbnail_url=f"/api/v1/public/media/{before_media[0][0]}/view" if before_media else None,
+                photo_url=f"/api/v1/public/media/{before_media[0][0]}/view" if before_media else None,
             )
         )
 
@@ -838,6 +856,8 @@ class StaffComplaintItem(BaseModel):
     is_guest: bool = False
     location_method: Optional[str] = None
     gps_accuracy: Optional[float] = None
+    thumbnail_url: Optional[str] = None
+    photo_url: Optional[str] = None
 
 
 @router.get("/all-complaints", response_model=List[StaffComplaintItem])
@@ -1044,6 +1064,8 @@ def get_all_complaints(
                 is_guest=sub.is_guest if (sub and sub.is_guest) else False,
                 location_method=sub.location_method if sub else None,
                 gps_accuracy=sub.gps_accuracy if sub else None,
+                thumbnail_url=f"/api/v1/public/media/{before_media[0][0]}/view" if before_media else None,
+                photo_url=f"/api/v1/public/media/{before_media[0][0]}/view" if before_media else None,
             )
         )
 

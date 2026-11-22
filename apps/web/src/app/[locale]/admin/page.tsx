@@ -63,13 +63,23 @@ type AdminSection =
 interface OverviewStats {
   total_villages: number;
   total_pdos: number;
+  assigned_pdos: number;
+  unassigned_pdos: number;
+  villages_with_pdo: number;
+  villages_without_pdo: number;
   total_workers: number;
   total_citizens: number;
   total_complaints: number;
-  resolved_complaints: number;
   pending_complaints: number;
+  under_review_complaints: number;
+  approved_complaints: number;
+  assigned_complaints: number;
   in_progress_complaints: number;
+  awaiting_verification_complaints: number;
+  resolved_complaints: number;
+  reopened_complaints: number;
   system_health?: string;
+  timestamp?: string;
 }
 
 interface TalukAnalytics {
@@ -107,13 +117,58 @@ interface VillageItem {
   official_code?: string;
   name_en: string;
   name_kn?: string;
+  name_hi?: string;
   unit_type: string;
+  parent_id?: string;
+  parent_name?: string;
+  taluk_name?: string;
+  district_name?: string;
+  is_active: boolean;
   assigned_pdo_id?: string;
   assigned_pdo_name?: string;
   assigned_pdo_email?: string;
   boundary_geojson?: any;
-  total_complaints?: number;
-  resolved_complaints?: number;
+  total_complaints: number;
+  pending_complaints: number;
+  in_progress_complaints: number;
+  resolved_complaints: number;
+  active_workers: number;
+  assignment_status: string;
+}
+
+interface VillageDetailModalData {
+  id: string;
+  name_en: string;
+  name_kn?: string;
+  official_code?: string;
+  unit_type: string;
+  taluk_name?: string;
+  district_name?: string;
+  assigned_pdo?: {
+    id: string;
+    full_name: string;
+    email: string;
+    phone_number?: string;
+    is_primary: boolean;
+  } | null;
+  workers: Array<{
+    id: string;
+    full_name: string;
+    email: string;
+    phone_number?: string;
+    department?: string;
+  }>;
+  complaints: Array<{
+    id: string;
+    reference_number: string;
+    category: string;
+    status: string;
+    priority: string;
+    created_at?: string;
+    resolved_at?: string;
+    assigned_worker_name?: string;
+  }>;
+  total_complaints: number;
 }
 
 interface PDOItem {
@@ -202,6 +257,12 @@ export default function SuperAdminDashboard() {
   const [newPdoPass, setNewPdoPass] = useState("PdoPass2026!");
   const [newPdoVillageId, setNewPdoVillageId] = useState("");
 
+  // Village Detail Inspection State
+  const [selectedVillageDetails, setSelectedVillageDetails] = useState<VillageDetailModalData | null>(null);
+  const [villageDetailsLoading, setVillageDetailsLoading] = useState(false);
+  const [assignPdoModalVillage, setAssignPdoModalVillage] = useState<VillageItem | null>(null);
+  const [selectedPdoIdForAssignment, setSelectedPdoIdForAssignment] = useState<string>("");
+
   // Announcement Workflow State
   const [announcementTargetType, setAnnouncementTargetType] = useState("ALL_PDOS");
   const [announcementVillages, setAnnouncementVillages] = useState<string[]>([]);
@@ -248,6 +309,42 @@ export default function SuperAdminDashboard() {
     localStorage.removeItem("access_token");
     localStorage.removeItem("gramaseva_user");
     router.push(`/${locale}/login`);
+  };
+
+  // Action: Open Village Details
+  const handleOpenVillageDetails = async (villageId: string) => {
+    setVillageDetailsLoading(true);
+    try {
+      const data = await apiClient.get<VillageDetailModalData>(`/admin/villages/${villageId}/details`);
+      setSelectedVillageDetails(data);
+    } catch (err: any) {
+      setError(err.message || "Failed to load village details");
+    } finally {
+      setVillageDetailsLoading(false);
+    }
+  };
+
+  // Action: Assign PDO to Village
+  const handleAssignPdoToVillage = async (villageId: string, pdoId: string) => {
+    try {
+      await apiClient.post(`/admin/villages/${villageId}/assign-pdo`, { pdo_id: pdoId });
+      setNotice("PDO assigned to Gram Panchayat successfully.");
+      setAssignPdoModalVillage(null);
+      loadAdminData();
+    } catch (err: any) {
+      setError(err.message || "Failed to assign PDO");
+    }
+  };
+
+  // Action: Unassign PDO from Village
+  const handleUnassignPdoFromVillage = async (villageId: string) => {
+    try {
+      await apiClient.delete(`/admin/villages/${villageId}/pdo`);
+      setNotice("PDO unassigned from Gram Panchayat.");
+      loadAdminData();
+    } catch (err: any) {
+      setError(err.message || "Failed to unassign PDO");
+    }
   };
 
   // Action: Create Village
@@ -621,47 +718,97 @@ export default function SuperAdminDashboard() {
                 </div>
               </div>
 
-              {/* Real Database KPI Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-                <div className="bg-white p-4 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
-                  <p className="text-[10px] font-bold text-[#40536B] uppercase">Total Villages</p>
-                  <p className="text-2xl font-black text-[#102B4E]">{stats?.total_villages ?? 0}</p>
-                  <p className="text-[10px] text-slate-400">Panchayats</p>
+              {/* Real Database KPI Grid: Jurisdictions & PDO Assignments */}
+              <div>
+                <p className="text-xs font-bold text-[#40536B] uppercase mb-2">Taluk Jurisdictions & Officer Allocation</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+                  <div className="bg-white p-3.5 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                    <p className="text-[10px] font-bold text-[#40536B] uppercase">Total Villages</p>
+                    <p className="text-2xl font-black text-[#102B4E]">{stats?.total_villages ?? 0}</p>
+                    <p className="text-[10px] text-slate-400">Panchayats</p>
+                  </div>
+                  <div className="bg-white p-3.5 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                    <p className="text-[10px] font-bold text-[#40536B] uppercase">GPs With PDO</p>
+                    <p className="text-2xl font-black text-emerald-700">{stats?.villages_with_pdo ?? 0}</p>
+                    <p className="text-[10px] text-slate-400">Covered</p>
+                  </div>
+                  <div className="bg-white p-3.5 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                    <p className="text-[10px] font-bold text-[#40536B] uppercase">GPs Without PDO</p>
+                    <p className="text-2xl font-black text-amber-700">{stats?.villages_without_pdo ?? 0}</p>
+                    <p className="text-[10px] text-slate-400">Unassigned</p>
+                  </div>
+                  <div className="bg-white p-3.5 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                    <p className="text-[10px] font-bold text-[#40536B] uppercase">Registered PDOs</p>
+                    <p className="text-2xl font-black text-[#087F78]">{stats?.total_pdos ?? 0}</p>
+                    <p className="text-[10px] text-slate-400">Officers</p>
+                  </div>
+                  <div className="bg-white p-3.5 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                    <p className="text-[10px] font-bold text-[#40536B] uppercase">Assigned PDOs</p>
+                    <p className="text-2xl font-black text-teal-700">{stats?.assigned_pdos ?? 0}</p>
+                    <p className="text-[10px] text-slate-400">Active Jurisdiction</p>
+                  </div>
+                  <div className="bg-white p-3.5 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                    <p className="text-[10px] font-bold text-[#40536B] uppercase">Unassigned PDOs</p>
+                    <p className="text-2xl font-black text-slate-600">{stats?.unassigned_pdos ?? 0}</p>
+                    <p className="text-[10px] text-slate-400">Available Reserve</p>
+                  </div>
+                  <div className="bg-white p-3.5 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                    <p className="text-[10px] font-bold text-[#40536B] uppercase">Field Workers</p>
+                    <p className="text-2xl font-black text-sky-700">{stats?.total_workers ?? 0}</p>
+                    <p className="text-[10px] text-slate-400">Technicians</p>
+                  </div>
+                  <div className="bg-white p-3.5 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                    <p className="text-[10px] font-bold text-[#40536B] uppercase">Citizens</p>
+                    <p className="text-2xl font-black text-amber-700">{stats?.total_citizens ?? 0}</p>
+                    <p className="text-[10px] text-slate-400">Residents</p>
+                  </div>
                 </div>
-                <div className="bg-white p-4 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
-                  <p className="text-[10px] font-bold text-[#40536B] uppercase">Active PDOs</p>
-                  <p className="text-2xl font-black text-[#087F78]">{stats?.total_pdos ?? 0}</p>
-                  <p className="text-[10px] text-slate-400">Panchayat Officers</p>
-                </div>
-                <div className="bg-white p-4 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
-                  <p className="text-[10px] font-bold text-[#40536B] uppercase">Field Workers</p>
-                  <p className="text-2xl font-black text-sky-700">{stats?.total_workers ?? 0}</p>
-                  <p className="text-[10px] text-slate-400">Technicians</p>
-                </div>
-                <div className="bg-white p-4 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
-                  <p className="text-[10px] font-bold text-[#40536B] uppercase">Citizens</p>
-                  <p className="text-2xl font-black text-amber-700">{stats?.total_citizens ?? 0}</p>
-                  <p className="text-[10px] text-slate-400">Residents</p>
-                </div>
-                <div className="bg-white p-4 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
-                  <p className="text-[10px] font-bold text-[#40536B] uppercase">Complaints</p>
-                  <p className="text-2xl font-black text-[#102B4E]">{stats?.total_complaints ?? 0}</p>
-                  <p className="text-[10px] text-slate-400">All Defect Logs</p>
-                </div>
-                <div className="bg-white p-4 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
-                  <p className="text-[10px] font-bold text-[#40536B] uppercase">Pending</p>
-                  <p className="text-2xl font-black text-amber-600">{stats?.pending_complaints ?? 0}</p>
-                  <p className="text-[10px] text-slate-400">Awaiting Triage</p>
-                </div>
-                <div className="bg-white p-4 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
-                  <p className="text-[10px] font-bold text-[#40536B] uppercase">In Progress</p>
-                  <p className="text-2xl font-black text-purple-600">{stats?.in_progress_complaints ?? 0}</p>
-                  <p className="text-[10px] text-slate-400">Field Execution</p>
-                </div>
-                <div className="bg-white p-4 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
-                  <p className="text-[10px] font-bold text-[#40536B] uppercase">Resolved</p>
-                  <p className="text-2xl font-black text-emerald-600">{stats?.resolved_complaints ?? 0}</p>
-                  <p className="text-[10px] text-slate-400">Verified Proof</p>
+              </div>
+
+              {/* Real Database KPI Grid: Complaint Lifecycle Statuses */}
+              <div>
+                <p className="text-xs font-bold text-[#40536B] uppercase mb-2">Complaint Lifecycle Progression (Real Database Queries)</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+                  <div className="bg-white p-3.5 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                    <p className="text-[10px] font-bold text-[#40536B] uppercase">Total Issues</p>
+                    <p className="text-2xl font-black text-[#102B4E]">{stats?.total_complaints ?? 0}</p>
+                    <p className="text-[10px] text-slate-400">All Defect Logs</p>
+                  </div>
+                  <div className="bg-white p-3.5 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                    <p className="text-[10px] font-bold text-[#40536B] uppercase">Pending (New)</p>
+                    <p className="text-2xl font-black text-amber-600">{stats?.pending_complaints ?? 0}</p>
+                    <p className="text-[10px] text-slate-400">Awaiting Triage</p>
+                  </div>
+                  <div className="bg-white p-3.5 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                    <p className="text-[10px] font-bold text-[#40536B] uppercase">Under Review</p>
+                    <p className="text-2xl font-black text-indigo-600">{stats?.under_review_complaints ?? 0}</p>
+                    <p className="text-[10px] text-slate-400">PDO Review</p>
+                  </div>
+                  <div className="bg-white p-3.5 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                    <p className="text-[10px] font-bold text-[#40536B] uppercase">Assigned</p>
+                    <p className="text-2xl font-black text-blue-600">{stats?.assigned_complaints ?? 0}</p>
+                    <p className="text-[10px] text-slate-400">Worker Assigned</p>
+                  </div>
+                  <div className="bg-white p-3.5 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                    <p className="text-[10px] font-bold text-[#40536B] uppercase">In Progress</p>
+                    <p className="text-2xl font-black text-purple-600">{stats?.in_progress_complaints ?? 0}</p>
+                    <p className="text-[10px] text-slate-400">Field Execution</p>
+                  </div>
+                  <div className="bg-white p-3.5 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                    <p className="text-[10px] font-bold text-[#40536B] uppercase">Awaiting Audit</p>
+                    <p className="text-2xl font-black text-orange-600">{stats?.awaiting_verification_complaints ?? 0}</p>
+                    <p className="text-[10px] text-slate-400">Photo Verification</p>
+                  </div>
+                  <div className="bg-white p-3.5 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                    <p className="text-[10px] font-bold text-[#40536B] uppercase">Resolved</p>
+                    <p className="text-2xl font-black text-emerald-600">{stats?.resolved_complaints ?? 0}</p>
+                    <p className="text-[10px] text-slate-400">Verified Proof</p>
+                  </div>
+                  <div className="bg-white p-3.5 rounded-2xl border border-[#DCE5EE] shadow-2xs space-y-1">
+                    <p className="text-[10px] font-bold text-[#40536B] uppercase">Reopened / Rework</p>
+                    <p className="text-2xl font-black text-rose-600">{stats?.reopened_complaints ?? 0}</p>
+                    <p className="text-[10px] text-slate-400">Correction Needed</p>
+                  </div>
                 </div>
               </div>
 
@@ -877,9 +1024,10 @@ export default function SuperAdminDashboard() {
                     <thead className="bg-[#F8FAFC] border-b border-[#DCE5EE] text-[#40536B] font-bold uppercase">
                       <tr>
                         <th className="py-3 px-4">Jurisdiction</th>
-                        <th className="py-3 px-4">Level</th>
+                        <th className="py-3 px-4">PDO Status</th>
                         <th className="py-3 px-4">Assigned Primary PDO</th>
-                        <th className="py-3 px-4">Boundary Data</th>
+                        <th className="py-3 px-4">Workers</th>
+                        <th className="py-3 px-4">Complaints</th>
                         <th className="py-3 px-4 text-right">Actions</th>
                       </tr>
                     </thead>
@@ -889,17 +1037,28 @@ export default function SuperAdminDashboard() {
                         .map((village) => (
                           <tr key={village.id} className="hover:bg-[#F8FAFC] transition-colors">
                             <td className="py-3.5 px-4 font-bold text-[#102B4E]">
-                              {village.name_en}
-                              {village.name_kn && (
-                                <span className="block text-[10px] text-slate-400 font-normal">
-                                  {village.name_kn}
+                              <div className="flex items-center gap-1.5">
+                                <span>{village.name_en}</span>
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-600 uppercase">
+                                  {village.unit_type.replace("_", " ")}
                                 </span>
-                              )}
+                              </div>
+                              <span className="block text-[10px] text-slate-400 font-normal mt-0.5">
+                                {village.name_kn ? `${village.name_kn} • ` : ""}{village.taluk_name || "Belagavi Taluk"}, {village.district_name || "Belagavi"}
+                              </span>
                             </td>
                             <td className="py-3.5 px-4">
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 capitalize">
-                                {village.unit_type.replace("_", " ")}
-                              </span>
+                              {village.assignment_status === "ASSIGNED" ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  ASSIGNED
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-100 text-amber-800 border border-amber-200">
+                                  <AlertTriangle className="w-3 h-3 text-amber-600" />
+                                  UNASSIGNED
+                                </span>
+                              )}
                             </td>
                             <td className="py-3.5 px-4">
                               {village.assigned_pdo_name ? (
@@ -908,33 +1067,58 @@ export default function SuperAdminDashboard() {
                                   <p className="text-[10px] text-slate-400">{village.assigned_pdo_email}</p>
                                 </div>
                               ) : (
-                                <span className="text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded">
-                                  Unassigned
+                                <span className="text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded text-[11px]">
+                                  No Officer Assigned
                                 </span>
                               )}
                             </td>
                             <td className="py-3.5 px-4">
-                              {village.boundary_geojson ? (
-                                <span className="inline-flex items-center gap-1 text-emerald-700 font-bold">
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                  GeoJSON Verified
-                                </span>
-                              ) : (
-                                <span className="text-slate-400">Default Radius</span>
-                              )}
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold bg-slate-100 text-slate-700 text-[11px]">
+                                <Users className="w-3 h-3 text-slate-500" />
+                                {village.active_workers} field staff
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-4">
+                              <div className="flex items-center gap-1.5 text-[10px]">
+                                <span className="font-bold text-[#102B4E]" title="Total Complaints">{village.total_complaints} total</span>
+                                <span>•</span>
+                                <span className="font-bold text-amber-600" title="Pending Complaints">{village.pending_complaints} pending</span>
+                                <span>•</span>
+                                <span className="font-bold text-emerald-600" title="Resolved Complaints">{village.resolved_complaints} resolved</span>
+                              </div>
                             </td>
                             <td className="py-3.5 px-4 text-right">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setActiveSection("pdos");
-                                  setShowCreatePdoModal(true);
-                                  setNewPdoVillageId(village.id);
-                                }}
-                                className="font-bold text-[#087F78] hover:underline"
-                              >
-                                {village.assigned_pdo_name ? "Reassign PDO" : "Assign PDO"}
-                              </button>
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenVillageDetails(village.id)}
+                                  className="px-2.5 py-1 rounded-lg border border-[#DCE5EE] hover:bg-slate-100 font-bold text-[#102B4E] flex items-center gap-1 text-[11px] transition-colors"
+                                  title="View full GP details, staff, and complaints"
+                                >
+                                  <Eye className="w-3.5 h-3.5 text-slate-500" />
+                                  <span>Details</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setAssignPdoModalVillage(village);
+                                    setSelectedPdoIdForAssignment(village.assigned_pdo_id || "");
+                                  }}
+                                  className="px-2.5 py-1 rounded-lg bg-[#087F78] hover:bg-[#066B65] text-white font-bold text-[11px] transition-colors"
+                                >
+                                  {village.assigned_pdo_name ? "Reassign" : "Assign PDO"}
+                                </button>
+                                {village.assigned_pdo_id && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUnassignPdoFromVillage(village.id)}
+                                    className="px-2 py-1 rounded-lg text-rose-600 hover:bg-rose-50 font-bold text-[11px] transition-colors"
+                                    title="Unassign current PDO"
+                                  >
+                                    Unassign
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -1713,6 +1897,222 @@ export default function SuperAdminDashboard() {
                     </p>
                   </div>
                   <input type="checkbox" defaultChecked disabled className="rounded text-[#087F78]" />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* MODAL: Assign / Reassign PDO to Gram Panchayat */}
+          {assignPdoModalVillage && (
+            <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-[#DCE5EE] space-y-4 text-xs">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h3 className="text-sm font-bold text-[#102B4E]">Assign Primary PDO</h3>
+                    <p className="text-[11px] text-[#40536B]">
+                      {assignPdoModalVillage.name_en} ({assignPdoModalVillage.taluk_name || "Belagavi Taluk"})
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAssignPdoModalVillage(null)}
+                    className="text-slate-400 hover:text-slate-600 font-bold p-1"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-[11px]">
+                  <p className="font-bold">Strict 1:1 Primary PDO Rule</p>
+                  <p className="mt-0.5">
+                    Each Gram Panchayat has exactly one Primary PDO responsible for reviewing submitted complaints and assigning field workers.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block font-bold text-[#102B4E] uppercase mb-1">
+                      Select Panchayat Development Officer
+                    </label>
+                    <select
+                      value={selectedPdoIdForAssignment}
+                      onChange={(e) => setSelectedPdoIdForAssignment(e.target.value)}
+                      className="w-full px-3 py-2 border border-[#DCE5EE] rounded-xl focus:outline-none bg-white font-semibold text-[#102B4E]"
+                    >
+                      <option value="">-- Choose an Officer --</option>
+                      {pdos.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.full_name} ({p.email}) — {p.village_name ? `Assigned to ${p.village_name}` : "Currently Unassigned"}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="pt-2 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAssignPdoModalVillage(null)}
+                      className="px-4 py-2 rounded-xl border border-[#DCE5EE] font-semibold text-[#40536B]"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedPdoIdForAssignment}
+                      onClick={() => handleAssignPdoToVillage(assignPdoModalVillage.id, selectedPdoIdForAssignment)}
+                      className="px-4 py-2 rounded-xl bg-[#087F78] hover:bg-[#066B65] text-white font-semibold shadow-2xs disabled:opacity-50"
+                    >
+                      Confirm Assignment
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* MODAL: Gram Panchayat Detail Inspection */}
+          {selectedVillageDetails && (
+            <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-[#DCE5EE] space-y-5 text-xs max-h-[90vh] overflow-y-auto">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-extrabold text-[#102B4E]">
+                        {selectedVillageDetails.name_en}
+                      </h3>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-800 uppercase">
+                        {selectedVillageDetails.unit_type.replace("_", " ")}
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#40536B] mt-0.5">
+                      {selectedVillageDetails.name_kn && `${selectedVillageDetails.name_kn} • `}
+                      {selectedVillageDetails.taluk_name || "Belagavi Taluk"}, {selectedVillageDetails.district_name || "Belagavi"}
+                      {selectedVillageDetails.official_code && ` • Code: ${selectedVillageDetails.official_code}`}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedVillageDetails(null)}
+                    className="text-slate-400 hover:text-slate-600 font-bold p-1 text-sm"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Primary PDO Card */}
+                <div className="p-4 rounded-2xl bg-[#F8FAFC] border border-[#DCE5EE] space-y-2">
+                  <p className="font-extrabold uppercase text-[10px] text-[#40536B] tracking-wider">
+                    Assigned Primary PDO
+                  </p>
+                  {selectedVillageDetails.assigned_pdo ? (
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-bold text-[#102B4E]">
+                          {selectedVillageDetails.assigned_pdo.full_name}
+                        </p>
+                        <p className="text-slate-500 text-[11px]">
+                          {selectedVillageDetails.assigned_pdo.email}
+                          {selectedVillageDetails.assigned_pdo.phone_number && ` • 📱 ${selectedVillageDetails.assigned_pdo.phone_number}`}
+                        </p>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 w-fit">
+                        Primary Officer Active
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <span className="text-amber-700 font-bold bg-amber-50 px-2 py-1 rounded">
+                        ⚠️ No Primary PDO Assigned to this Gram Panchayat
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Field Workers Section */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="font-extrabold uppercase text-[10px] text-[#40536B] tracking-wider">
+                      Affiliated Field Staff ({selectedVillageDetails.workers.length})
+                    </p>
+                  </div>
+                  {selectedVillageDetails.workers.length === 0 ? (
+                    <p className="text-slate-400 italic py-2">No active field workers registered in this village.</p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {selectedVillageDetails.workers.map((w) => (
+                        <div key={w.id} className="p-2.5 rounded-xl border border-[#DCE5EE] bg-white text-[11px]">
+                          <p className="font-bold text-[#102B4E]">{w.full_name}</p>
+                          <p className="text-slate-500 text-[10px]">{w.email} {w.phone_number ? `• ${w.phone_number}` : ""}</p>
+                          {w.department && (
+                            <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-slate-100 text-[9px] font-bold text-slate-600 uppercase">
+                              {w.department}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Complaints Overview Section */}
+                <div className="space-y-2">
+                  <p className="font-extrabold uppercase text-[10px] text-[#40536B] tracking-wider">
+                    Recent GP Complaints ({selectedVillageDetails.total_complaints} total)
+                  </p>
+                  {selectedVillageDetails.complaints.length === 0 ? (
+                    <p className="text-slate-400 italic py-2">Zero complaints logged for this village.</p>
+                  ) : (
+                    <div className="border border-[#DCE5EE] rounded-xl overflow-hidden">
+                      <div className="max-h-60 overflow-y-auto">
+                        <table className="w-full text-left text-[11px]">
+                          <thead className="bg-[#F8FAFC] border-b border-[#DCE5EE] text-[#40536B] font-bold uppercase">
+                            <tr>
+                              <th className="py-2 px-3">Ref ID</th>
+                              <th className="py-2 px-3">Category</th>
+                              <th className="py-2 px-3">Status</th>
+                              <th className="py-2 px-3">Priority</th>
+                              <th className="py-2 px-3">Assigned To</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[#DCE5EE]">
+                            {selectedVillageDetails.complaints.map((c) => (
+                              <tr key={c.id} className="hover:bg-[#F8FAFC]">
+                                <td className="py-2 px-3 font-mono font-bold text-[#102B4E]">{c.reference_number}</td>
+                                <td className="py-2 px-3 capitalize">{c.category.replace("_", " ")}</td>
+                                <td className="py-2 px-3">
+                                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                                    c.status === "RESOLVED" ? "bg-emerald-100 text-emerald-800" :
+                                    c.status === "IN_PROGRESS" ? "bg-purple-100 text-purple-800" :
+                                    c.status === "SUBMITTED" ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"
+                                  }`}>
+                                    {c.status}
+                                  </span>
+                                </td>
+                                <td className="py-2 px-3">
+                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                    c.priority === "HIGH" || c.priority === "CRITICAL" ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-700"
+                                  }`}>
+                                    {c.priority}
+                                  </span>
+                                </td>
+                                <td className="py-2 px-3 text-slate-500">{c.assigned_worker_name || "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex justify-end pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedVillageDetails(null)}
+                    className="px-5 py-2 rounded-xl bg-[#102B4E] text-white font-bold hover:bg-[#1B2D4A] transition-colors"
+                  >
+                    Close Inspection
+                  </button>
                 </div>
               </div>
             </div>

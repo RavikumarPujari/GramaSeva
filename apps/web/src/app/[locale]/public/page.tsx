@@ -63,6 +63,14 @@ const BELAGAVI_VILLAGES = [
   "Navage",
 ];
 
+const getMediaUrl = (url?: string) => {
+  if (!url) return "";
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+  const origin = base.replace(/\/api\/v1\/?$/, "");
+  return url.startsWith("/") ? `${origin}${url}` : `${base}/public/media/${url}/view`;
+};
+
 interface PublicMediaItem {
   id: string;
   evidence_role: string;
@@ -392,11 +400,13 @@ export default function PublicDashboardPage() {
                   className="w-full px-3 py-2 border border-[#DCE5EE] rounded-xl bg-white font-semibold text-[#102B4E] focus:outline-none focus:ring-1 focus:ring-[#087F78]"
                 >
                   <option value="ALL">All Categories</option>
-                  <option value="road_damage">Road Damage</option>
-                  <option value="water_leak">Drinking Water Leak</option>
-                  <option value="garbage">Solid Waste / Garbage</option>
-                  <option value="drainage">Drainage & Sewage</option>
-                  <option value="streetlight">Streetlight</option>
+                  <option value="road_damage">Road Damage & Potholes</option>
+                  <option value="water_leak">Drinking Water & Leaks</option>
+                  <option value="garbage">Solid Waste & Garbage</option>
+                  <option value="drainage">Drainage & Waterlogging</option>
+                  <option value="streetlight">Streetlight Problems</option>
+                  <option value="public_facility">Public Facilities & Sanitation</option>
+                  <option value="other">Other Civic Complaints</option>
                 </select>
               </div>
 
@@ -587,9 +597,12 @@ export default function PublicDashboardPage() {
                     <div className="relative aspect-video w-full bg-slate-100 overflow-hidden border-b border-[#DCE5EE]">
                       {item.thumbnail_url ? (
                         <img
-                          src={item.thumbnail_url}
+                          src={getMediaUrl(item.thumbnail_url)}
                           alt={item.category}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = "none";
+                          }}
                         />
                       ) : (
                         <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 text-slate-400 p-4">
