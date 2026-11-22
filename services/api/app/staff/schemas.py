@@ -9,6 +9,7 @@ class TriageActionRequest(BaseModel):
     corrected_category: Optional[str] = None
     corrected_ward_id: Optional[str] = None
     instructions: Optional[str] = None
+    target_date: Optional[datetime] = None
     audit_reason: str = Field(default="Standard triage by authority reviewer")
 
 class DuplicateDecisionRequest(BaseModel):

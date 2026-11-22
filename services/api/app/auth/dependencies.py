@@ -45,6 +45,25 @@ def get_current_user(
     
     return profile
 
+def get_optional_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
+    db: Session = Depends(get_db),
+) -> Optional[Profile]:
+    """
+    Returns authenticated Profile if valid Bearer token provided, or None if guest/unauthenticated.
+    """
+    if not credentials:
+        return None
+    try:
+        payload = decode_access_token(credentials.credentials)
+        if not payload or "sub" not in payload:
+            return None
+        user_id = payload["sub"]
+        profile = db.query(Profile).filter(Profile.id == user_id, Profile.is_active == True).first()
+        return profile
+    except Exception:
+        return None
+
 def require_roles(*allowed_roles: str):
     """RBAC dependency: checks if user has at least one active assignment in allowed_roles."""
     def role_checker(

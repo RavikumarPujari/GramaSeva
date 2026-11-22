@@ -25,6 +25,7 @@ from app.notifications.service import notification_service
 from app.public.router import (
     get_public_issues,
     get_public_issue_detail,
+    track_public_issue,
     view_public_media,
     get_public_analytics,
     get_public_localities,
@@ -336,6 +337,52 @@ class TestPublicAndAnalytics(unittest.TestCase):
         self.assertTrue(fb_get["has_feedback"])
         self.assertEqual(fb_get["rating"], 5)
         self.assertEqual(fb_get["comment"], "Fixed cleanly and working well!")
+
+    def test_09_track_public_issue_by_tracking_id_and_reference(self):
+        """Verifies track_public_issue resolves by tracking_id or reference_number and eliminates 404s."""
+        test_ref = f"GS-2026-BEL-{uuid.uuid4().hex[:4].upper()}"
+        issue = Issue(
+            reference_number=test_ref,
+            category="water_leakage",
+            status="SUBMITTED",
+            priority="HIGH",
+            organization_id=self.org.id,
+            latitude=15.8152,
+            longitude=74.4610,
+        )
+        self.db.add(issue)
+        self.db.flush()
+
+        sub = Submission(
+            tracking_id=test_ref,
+            reporter_id=self.citizen.id,
+            issue_id=issue.id,
+            category="water_leakage",
+            description="Major pipeline leak near village square",
+            locale="en",
+        )
+        self.db.add(sub)
+        self.db.commit()
+
+        # Track by reference_number / tracking_id -> must succeed
+        tracked = track_public_issue(reference_number=test_ref, db=self.db)
+        self.assertIsNotNone(tracked)
+        self.assertEqual(tracked.reference_number, test_ref)
+        self.assertEqual(tracked.status, "SUBMITTED")
+        self.assertEqual(tracked.category, "water_leakage")
+
+        # Track by Issue UUID -> must also succeed
+        tracked_by_uuid = track_public_issue(reference_number=issue.id, db=self.db)
+        self.assertEqual(tracked_by_uuid.reference_number, test_ref)
+
+        # get_public_issue_detail with reference_number -> must also succeed
+        detail_by_ref = get_public_issue_detail(issue_id=test_ref, db=self.db)
+        self.assertEqual(detail_by_ref.id, issue.id)
+
+        # Invalid reference -> must raise 404
+        with self.assertRaises(HTTPException) as cm:
+            track_public_issue(reference_number="NONEXISTENT-ID-9999", db=self.db)
+        self.assertEqual(cm.exception.status_code, 404)
 
 if __name__ == "__main__":
     unittest.main()

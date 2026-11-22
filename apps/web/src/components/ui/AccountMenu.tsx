@@ -92,26 +92,26 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({
     {
       href: `/${locale}/admin`,
       label: "Super Admin",
-      role: "State & District",
-      icon: <ShieldAlert className="w-3.5 h-3.5 text-[#102B4E]" />,
+      subtitle: "State & District",
+      icon: <ShieldAlert className="w-4 h-4 text-[#102B4E] group-hover:text-[#087F78] transition-colors" />,
     },
     {
       href: `/${locale}/pdo`,
       label: "Village PDO",
-      role: "Gram Panchayat Operations",
-      icon: <ClipboardList className="w-3.5 h-3.5 text-[#087F78]" />,
+      subtitle: "Gram Panchayat Operations",
+      icon: <ClipboardList className="w-4 h-4 text-[#087F78] group-hover:text-[#087F78] transition-colors" />,
     },
     {
       href: `/${locale}/worker`,
       label: "Field Worker",
-      role: "Assigned Work Orders",
-      icon: <Wrench className="w-3.5 h-3.5 text-sky-700" />,
+      subtitle: "Assigned Work Orders",
+      icon: <Wrench className="w-4 h-4 text-sky-700 group-hover:text-[#087F78] transition-colors" />,
     },
     {
       href: `/${locale}/citizen`,
       label: "Citizen Dashboard",
-      role: "My Submissions & History",
-      icon: <UserCheck className="w-3.5 h-3.5 text-amber-700" />,
+      subtitle: "My Submissions & History",
+      icon: <UserCheck className="w-4 h-4 text-amber-700 group-hover:text-[#087F78] transition-colors" />,
     },
   ];
 
@@ -132,7 +132,7 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({
         onClick={() => setIsOpen((prev) => !prev)}
         className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center transition-all duration-150 border ${buttonStyles} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#20B5A5]`}
         aria-label="Account and Authentication Menu"
-        title="Account & Access (Sign In / Register)"
+        title="Account & Access (Role Portals, Sign In & Register)"
         aria-expanded={isOpen}
         aria-haspopup="menu"
       >
@@ -144,104 +144,119 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({
         <div
           role="menu"
           aria-label="Account actions"
-          className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-[#DCE5EE] p-2.5 z-50 animate-in fade-in zoom-in-95 duration-100 space-y-2"
+          className="absolute right-0 mt-2 w-72 sm:w-80 max-w-[calc(100vw-1.5rem)] bg-white rounded-2xl shadow-xl border border-[#DCE5EE] p-2.5 z-50 animate-in fade-in zoom-in-95 duration-100 space-y-1"
         >
-          {/* Header */}
-          <div className="px-2.5 py-1.5 border-b border-[#DCE5EE]/70">
-            {currentUser ? (
-              <div>
-                <p className="text-xs font-bold text-[#102B4E] truncate">{currentUser.full_name || "Signed In"}</p>
-                <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className="text-[10px] text-slate-500 truncate">{currentUser.email}</span>
-                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-teal-100 text-[#087F78] uppercase">
-                    {currentUser.roles?.[0]?.role || "citizen"}
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <div>
-                <p className="text-xs font-bold text-[#102B4E]">Citizen & Staff Access</p>
-                <p className="text-[11px] text-[#40536B]">GramaSeva Civic Services</p>
-              </div>
-            )}
-          </div>
-
-          {currentUser ? (
-            /* Logged In Citizen Actions */
-            <div className="space-y-1">
-              <Link
-                href={`/${locale}/my-reports`}
-                onClick={handleLinkClick}
-                role="menuitem"
-                className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-[#102B4E] hover:bg-[#F4F8FC] transition-colors"
-              >
-                <FileText className="w-4 h-4 text-[#087F78]" />
-                <span>My Complaints & Tracking</span>
-              </Link>
-
-              <button
-                type="button"
-                onClick={handleSignOut}
-                role="menuitem"
-                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-rose-700 hover:bg-rose-50 transition-colors text-left"
-              >
-                <LogOut className="w-4 h-4 text-rose-600" />
-                <span>Sign Out</span>
-              </button>
-            </div>
-          ) : (
-            /* Primary Citizen Actions: Sign In & Register */
-            <div className="space-y-1">
-              <Link
-                href={`/${locale}/login`}
-                onClick={handleLinkClick}
-                role="menuitem"
-                className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-[#102B4E] hover:bg-[#F4F8FC] transition-colors"
-              >
-                <LogIn className="w-4 h-4 text-[#087F78]" />
-                <span>{tNav("signIn")}</span>
-              </Link>
-
-              <Link
-                href={`/${locale}/register`}
-                onClick={handleLinkClick}
-                role="menuitem"
-                className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-white bg-[#087F78] hover:bg-[#066B65] shadow-2xs transition-colors"
-              >
-                <UserPlus className="w-4 h-4 text-white" />
-                <span>{tNav("register")}</span>
-              </Link>
-            </div>
-          )}
-
-          {/* Role Portals Shortcut for Officials & Testers */}
-          <div className="pt-2 border-t border-[#DCE5EE]/70">
-            <p className="px-2.5 text-[10px] font-bold uppercase tracking-wider text-[#40536B] mb-1.5">
+          {/* Section 1: AUTHORIZED ROLE PORTALS (Mandatory Order: 1. Super Admin, 2. Village PDO, 3. Field Worker, 4. Citizen Dashboard) */}
+          <div className="px-2.5 pt-1 pb-1.5">
+            <p className="text-[10px] font-extrabold uppercase tracking-wider text-[#40536B]">
               Authorized Role Portals
             </p>
-            <div className="space-y-1">
-              {portalLinks.map((portal) => (
-                <Link
-                  key={portal.href}
-                  href={portal.href}
-                  onClick={handleLinkClick}
-                  role="menuitem"
-                  className="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs hover:bg-[#F4F8FC] transition-colors group"
-                >
-                  <div className="flex items-center gap-2">
-                    {portal.icon}
-                    <div>
-                      <p className="font-semibold text-[#102B4E] group-hover:text-[#087F78] text-[11px]">
-                        {portal.label}
-                      </p>
-                      <p className="text-[9px] text-[#40536B]">{portal.role}</p>
-                    </div>
-                  </div>
-                  <ArrowRight className="w-3 h-3 text-slate-400 group-hover:text-[#087F78] transition-colors" />
-                </Link>
-              ))}
-            </div>
           </div>
+
+          <div className="space-y-0.5">
+            {portalLinks.map((portal) => (
+              <Link
+                key={portal.href}
+                href={portal.href}
+                onClick={handleLinkClick}
+                role="menuitem"
+                className="flex items-center justify-between px-2.5 py-2 rounded-xl hover:bg-[#F4F8FC] group transition-all"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-7 h-7 rounded-lg bg-slate-50 border border-slate-200/60 flex items-center justify-center shrink-0 group-hover:border-teal-200 group-hover:bg-teal-50/50 transition-colors">
+                    {portal.icon}
+                  </div>
+                  <div className="truncate text-left">
+                    <p className="font-bold text-[#102B4E] group-hover:text-[#087F78] text-xs transition-colors truncate">
+                      {portal.label}
+                    </p>
+                    <p className="text-[10px] text-[#40536B] truncate">
+                      {portal.subtitle}
+                    </p>
+                  </div>
+                </div>
+                <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-[#087F78] group-hover:translate-x-0.5 transition-all shrink-0 ml-2" />
+              </Link>
+            ))}
+          </div>
+
+          {/* Subtle Divider */}
+          <div className="my-1.5 border-t border-[#DCE5EE]" />
+
+          {/* Section 2: AUTHENTICATION ACTIONS (Mandatory Order: 5. Sign In, 6. Register) */}
+          <div className="px-2.5 pt-1 pb-1">
+            <p className="text-[10px] font-extrabold uppercase tracking-wider text-[#40536B]">
+              Authentication Actions
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            {/* 5. Sign In */}
+            <Link
+              href={`/${locale}/login`}
+              onClick={handleLinkClick}
+              role="menuitem"
+              className="flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-semibold text-[#102B4E] hover:bg-[#F4F8FC] group transition-all"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-slate-50 border border-slate-200/60 flex items-center justify-center shrink-0 group-hover:border-teal-200 group-hover:bg-teal-50/50 transition-colors">
+                  <LogIn className="w-4 h-4 text-[#087F78]" />
+                </div>
+                <div className="text-left">
+                  <p className="font-bold text-[#102B4E] group-hover:text-[#087F78] text-xs transition-colors">
+                    {tNav("signIn")}
+                  </p>
+                  <p className="text-[10px] text-[#40536B]">Access your authorized account</p>
+                </div>
+              </div>
+              <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-[#087F78] group-hover:translate-x-0.5 transition-all" />
+            </Link>
+
+            {/* 6. Register */}
+            <Link
+              href={`/${locale}/register`}
+              onClick={handleLinkClick}
+              role="menuitem"
+              className="flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-semibold text-white bg-[#087F78] hover:bg-[#066B65] shadow-xs group transition-all"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
+                  <UserPlus className="w-4 h-4 text-white" />
+                </div>
+                <div className="text-left">
+                  <p className="font-bold text-white text-xs">
+                    {tNav("register")}
+                  </p>
+                  <p className="text-[10px] text-teal-100">Create new citizen account</p>
+                </div>
+              </div>
+              <ArrowRight className="w-3.5 h-3.5 text-teal-100 group-hover:translate-x-0.5 transition-all" />
+            </Link>
+          </div>
+
+          {/* Active Session Management (If Signed In) */}
+          {currentUser && (
+            <div className="pt-2 mt-1 border-t border-[#DCE5EE]">
+              <div className="p-2 rounded-xl bg-slate-50 flex items-center justify-between gap-2">
+                <div className="truncate text-left text-xs">
+                  <p className="font-bold text-[#102B4E] truncate">
+                    {currentUser.full_name || "Active Session"}
+                  </p>
+                  <p className="text-[10px] text-slate-500 truncate">
+                    {currentUser.email}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-bold border border-rose-200 transition-colors shrink-0 flex items-center gap-1"
+                >
+                  <LogOut className="w-3 h-3 text-rose-600" />
+                  <span>Exit</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

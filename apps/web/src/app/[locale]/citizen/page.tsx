@@ -43,6 +43,7 @@ import {
 } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { LeafletMap } from "@/components/ui/LeafletMap";
+import { GramaSevaLogo } from "@/components/ui/GramaSevaLogo";
 
 type CitizenSection =
   | "dashboard"
@@ -69,6 +70,10 @@ interface CitizenComplaint {
   created_at: string;
   resolved_at?: string;
   media_assets?: Array<{ id: string; mime_type: string; evidence_role?: string }>;
+  clarification_message?: string;
+  clarification_response?: string;
+  rejection_reason?: string;
+  verified_cost?: number;
 }
 
 interface CitizenWard {
@@ -173,6 +178,10 @@ export default function CitizenDashboard() {
   const [docTitle, setDocTitle] = useState("");
   const [docType, setDocType] = useState("RATION_CARD");
   const [isSubmittingDoc, setIsSubmittingDoc] = useState(false);
+
+  // Clarification Response State (Part 6)
+  const [citizenClarificationText, setCitizenClarificationText] = useState("");
+  const [isSubmittingClarification, setIsSubmittingClarification] = useState(false);
 
   // Profile Form State
   const [isSavingProfile, setIsSavingProfile] = useState(false);
@@ -290,6 +299,10 @@ export default function CitizenDashboard() {
           created_at: c.created_at || new Date().toISOString(),
           resolved_at: c.resolved_at,
           media_assets: c.media_assets || [],
+          clarification_message: c.clarification_message,
+          clarification_response: c.clarification_response,
+          rejection_reason: c.rejection_reason,
+          verified_cost: c.verified_cost,
         }));
         setComplaints(formatted);
         if (!selectedComplaint && formatted.length > 0) {
@@ -447,6 +460,35 @@ export default function CitizenDashboard() {
       setNotice("Dispute could not be registered. Please try again.");
     } finally {
       setIsSubmittingDispute(false);
+    }
+  };
+
+  // Submit Clarification Response to PDO (Part 6)
+  const handleSubmitClarification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedComplaint || !citizenClarificationText.trim()) return;
+    setIsSubmittingClarification(true);
+    try {
+      await apiClient.post(`/reports/${selectedComplaint.id}/clarify`, {
+        clarification_response: citizenClarificationText.trim(),
+      });
+      const responseVal = citizenClarificationText.trim();
+      setCitizenClarificationText("");
+      setNotice("Your clarification has been submitted to the PDO. The complaint status is now UNDER REVIEW.");
+      setSelectedComplaint((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: "UNDER_REVIEW",
+              clarification_response: responseVal,
+            }
+          : null
+      );
+      loadCitizenData();
+    } catch (err: any) {
+      setNotice(err.message || "Failed to submit clarification response.");
+    } finally {
+      setIsSubmittingClarification(false);
     }
   };
 
@@ -661,13 +703,12 @@ export default function CitizenDashboard() {
               <LayoutDashboard className="w-4 h-4" />
             </button>
 
-            <div className="w-10 h-10 rounded-xl bg-teal-500/20 text-teal-300 flex items-center justify-center font-bold border border-teal-400/30">
-              <ShieldCheck className="w-5 h-5 text-teal-400" />
-            </div>
+            <GramaSevaLogo size="sm" inverted={true} className="mr-1" />
+            <div className="hidden sm:block h-6 w-px bg-white/20" />
 
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-sm sm:text-base font-bold tracking-tight">GramaSeva Citizen Portal</h1>
+                <h1 className="text-sm sm:text-base font-bold tracking-tight">Citizen Portal</h1>
                 <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-teal-500/25 text-teal-200 border border-teal-400/30 hidden sm:inline-block">
                   Verified Resident
                 </span>
@@ -739,6 +780,22 @@ export default function CitizenDashboard() {
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeSection === item.id;
+                if (item.id === "report") {
+                  return (
+                    <Link
+                      key={item.id}
+                      href={`/${locale}/report`}
+                      onClick={() => setIsSidebarOpen(false)}
+                      className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-[#087F78] bg-[#087F78]/10 hover:bg-[#087F78]/15 transition-all text-left"
+                    >
+                      <div className="flex items-center gap-2.5 truncate">
+                        <Icon className="w-4 h-4 shrink-0 text-[#087F78]" />
+                        <span className="truncate">{item.label}</span>
+                      </div>
+                      <ArrowRight className="w-3.5 h-3.5 text-[#087F78]" />
+                    </Link>
+                  );
+                }
                 return (
                   <button
                     key={item.id}
@@ -843,14 +900,13 @@ export default function CitizenDashboard() {
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setActiveSection("report")}
+                <Link
+                  href={`/${locale}/report`}
                   className="h-12 px-6 rounded-2xl bg-[#087F78] hover:bg-[#066B65] text-white font-bold text-sm flex items-center justify-center gap-2.5 shadow-md hover:shadow-lg transition-all self-start md:self-auto shrink-0"
                 >
                   <FilePlus className="w-5 h-5" />
                   <span>Report New Issue</span>
-                </button>
+                </Link>
               </div>
 
               {/* Panchayat Announcements Banner */}
@@ -1524,11 +1580,89 @@ export default function CitizenDashboard() {
                     </div>
                   </div>
 
+                  {/* Clarification Request Banner & Response Form (Part 6) */}
+                  {selectedComplaint.status === "NEEDS_INFORMATION" && (
+                    <div className="p-5 rounded-2xl bg-amber-50 border border-amber-200 space-y-3 text-xs">
+                      <div className="flex items-center gap-2 text-amber-900 font-bold text-sm">
+                        <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+                        <span>Action Required: PDO Requested Clarification</span>
+                      </div>
+                      <div className="p-3 bg-white/80 rounded-xl border border-amber-100 space-y-1">
+                        <span className="text-[10px] uppercase font-bold text-amber-800">Officer Message:</span>
+                        <p className="text-amber-950 font-medium">
+                          {selectedComplaint.clarification_message || "Please provide additional details regarding this defect."}
+                        </p>
+                      </div>
+
+                      <form onSubmit={handleSubmitClarification} className="space-y-2">
+                        <label className="block text-[11px] font-bold text-amber-950 uppercase">
+                          Your Response to PDO *
+                        </label>
+                        <textarea
+                          required
+                          rows={3}
+                          value={citizenClarificationText}
+                          onChange={(e) => setCitizenClarificationText(e.target.value)}
+                          placeholder="Provide the requested details or landmarks..."
+                          className="w-full px-3 py-2 border border-amber-300 rounded-xl bg-white focus:outline-none text-[#102B4E]"
+                        />
+                        <button
+                          type="submit"
+                          disabled={!citizenClarificationText.trim() || isSubmittingClarification}
+                          className="px-4 py-2 rounded-xl bg-[#087F78] hover:bg-[#066B65] text-white font-bold text-xs disabled:opacity-50"
+                        >
+                          {isSubmittingClarification ? "Submitting..." : "Submit Clarification to PDO ✓"}
+                        </button>
+                      </form>
+                    </div>
+                  )}
+
+                  {/* Clarification Previously Provided */}
+                  {selectedComplaint.status !== "NEEDS_INFORMATION" && selectedComplaint.clarification_message && (
+                    <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-200/80 space-y-2 text-xs">
+                      <div className="flex items-center gap-2 text-amber-900 font-bold">
+                        <Info className="w-4 h-4 text-amber-600" />
+                        <span>PDO Clarification History</span>
+                      </div>
+                      <p className="text-amber-950">
+                        <strong>Requested:</strong> {selectedComplaint.clarification_message}
+                      </p>
+                      {selectedComplaint.clarification_response && (
+                        <p className="text-teal-900 font-medium">
+                          <strong>Your Answer:</strong> {selectedComplaint.clarification_response}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Rejection Alert */}
+                  {selectedComplaint.status === "REJECTED" && (
+                    <div className="p-5 rounded-2xl bg-red-50 border border-red-200 space-y-2 text-xs">
+                      <div className="flex items-center gap-2 text-red-900 font-bold text-sm">
+                        <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
+                        <span>Complaint Rejected by Gram Panchayat</span>
+                      </div>
+                      <p className="text-red-950 leading-relaxed">
+                        {selectedComplaint.rejection_reason || "This complaint was reviewed and closed as it does not meet Panchayat civic action criteria."}
+                      </p>
+                    </div>
+                  )}
+
                   {/* Resolution Details & Before/After Comparison */}
                   <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-4 text-xs">
-                    <h4 className="font-bold text-[#102B4E] uppercase text-[11px]">
-                      Complaint Report Details
-                    </h4>
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-bold text-[#102B4E] uppercase text-[11px]">
+                        Complaint Report Details
+                      </h4>
+                      {selectedComplaint.status === "RESOLVED" && selectedComplaint.verified_cost != null && (
+                        <div className="px-3 py-1 bg-emerald-100 border border-emerald-300 rounded-lg flex items-center gap-2">
+                          <span className="text-[10px] font-bold text-emerald-800 uppercase">Verified Public Cost:</span>
+                          <span className="font-mono font-bold text-xs text-emerald-950">
+                            ₹{selectedComplaint.verified_cost.toLocaleString("en-IN")}
+                          </span>
+                        </div>
+                      )}
+                    </div>
                     <p className="text-[#40536B] leading-relaxed">{selectedComplaint.description}</p>
 
                     {/* Before & After Photo Proof */}

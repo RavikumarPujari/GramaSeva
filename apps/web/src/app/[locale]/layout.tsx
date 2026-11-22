@@ -12,6 +12,16 @@ export const metadata: Metadata = {
   title: "GramaSeva — Verified Civic Complaint & Repair Tracking",
   description:
     "Village-first civic technology pilot for Gram Panchayats and municipal wards. Report issues, track verified repairs with photo evidence, and ensure independent review.",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/images/gramaseva-favicon.png", type: "image/png", sizes: "32x32" },
+      { url: "/images/gramaseva-favicon.png", type: "image/png", sizes: "64x64" },
+    ],
+    apple: [
+      { url: "/images/gramaseva-favicon.png", sizes: "64x64", type: "image/png" },
+    ],
+  },
 };
 
 export function generateStaticParams() {

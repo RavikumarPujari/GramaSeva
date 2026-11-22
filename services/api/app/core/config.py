@@ -19,8 +19,24 @@ class Settings(BaseSettings):
     object_storage_driver: str = os.getenv("OBJECT_STORAGE_DRIVER", "local")
     object_storage_local_path: str = os.getenv("OBJECT_STORAGE_LOCAL_PATH", "./storage")
     
-    # AI Worker
+    # AI Worker & Roboflow 5-Model Suite
     ai_worker_enabled: bool = os.getenv("AI_WORKER_ENABLED", "false").lower() == "true"
+    roboflow_api_key: Optional[str] = os.getenv("ROBOFLOW_API_KEY", "")
+    roboflow_api_url: str = os.getenv("ROBOFLOW_API_URL", "https://serverless.roboflow.com")
+    roboflow_model_garbage: str = os.getenv("ROBOFLOW_MODEL_GARBAGE", "garbage_detection-wvzwv-n8vsv/1")
+    roboflow_model_road: str = os.getenv("ROBOFLOW_MODEL_ROAD", "road-damage-detection-fn0qh/1")
+    roboflow_model_waterlogging: str = os.getenv("ROBOFLOW_MODEL_WATERLOGGING", "water-logging-a7zhi/1")
+    roboflow_model_civic_1: str = os.getenv("ROBOFLOW_MODEL_CIVIC_1", "civic-issues-lroee/3")
+    roboflow_model_civic_2: str = os.getenv("ROBOFLOW_MODEL_CIVIC_2", "civic-issues-nq7sy-bh8t3/1")
+
+    # Reverse Geocoding & Mapping
+    nominatim_user_agent: str = os.getenv("NOMINATIM_USER_AGENT", "GramaSeva-Belagavi-Pilot/1.0")
+    google_maps_api_key: Optional[str] = os.getenv("GOOGLE_MAPS_API_KEY", "")
+    google_maps_public_key: Optional[str] = os.getenv("NEXT_PUBLIC_GOOGLE_MAPS_API_KEY", "")
+
+    # Gemini AI Integration
+    gemini_api_key: Optional[str] = os.getenv("GEMINI_API_KEY", "")
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 
     class Config:
         env_file = ".env"

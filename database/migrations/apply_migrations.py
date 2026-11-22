@@ -182,6 +182,96 @@ for p in db_paths:
     );
     """)
 
+    # Check submissions extra columns for dual-source location
+    cur.execute("PRAGMA table_info(submissions);")
+    sub_cols = [r[1] for r in cur.fetchall()]
+    new_sub_cols = [
+        ("gps_timestamp", "TIMESTAMP"),
+        ("ocr_extracted_text", "TEXT"),
+        ("ocr_detections_json", "TEXT"),
+        ("landmark_candidates_json", "TEXT"),
+        ("photo_location_status", "VARCHAR(50) DEFAULT 'NOT_EVALUATED'"),
+        ("photo_location_provider", "VARCHAR(100)"),
+        ("confirmed_latitude", "FLOAT"),
+        ("confirmed_longitude", "FLOAT"),
+        ("confirmed_village", "VARCHAR(255)"),
+        ("confirmed_address", "TEXT"),
+        ("confirmation_method", "VARCHAR(50) DEFAULT 'CITIZEN_CONFIRMED'"),
+        ("jurisdiction_status", "VARCHAR(50) DEFAULT 'VERIFIED'"),
+        ("location_conflict_flag", "BOOLEAN DEFAULT 0"),
+        ("location_conflict_details", "TEXT"),
+        ("detected_village", "VARCHAR(255)"),
+        ("detected_taluk", "VARCHAR(100)"),
+        ("detected_district", "VARCHAR(100)"),
+        ("detected_state", "VARCHAR(100)"),
+        ("detected_country", "VARCHAR(100) DEFAULT 'India'"),
+        ("detected_postal_code", "VARCHAR(20)"),
+        ("google_place_id", "VARCHAR(255)"),
+        ("geocoding_status", "VARCHAR(50)"),
+        ("location_confirmation_status", "VARCHAR(50) DEFAULT 'UNCONFIRMED'"),
+    ]
+    for col, col_type in new_sub_cols:
+        if col not in sub_cols:
+            cur.execute(f"ALTER TABLE submissions ADD COLUMN {col} {col_type}")
+            print(f"[{p}] Added submissions.{col} column")
+
+    # Check issues extra columns
+    cur.execute("PRAGMA table_info(issues);")
+    iss_cols = [r[1] for r in cur.fetchall()]
+    new_iss_cols = [
+        ("jurisdiction_status", "VARCHAR(50) DEFAULT 'VERIFIED'"),
+        ("has_location_conflict", "BOOLEAN DEFAULT 0"),
+        ("location_conflict_details", "TEXT"),
+    ]
+    for col, col_type in new_iss_cols:
+        if col not in iss_cols:
+            cur.execute(f"ALTER TABLE issues ADD COLUMN {col} {col_type}")
+            print(f"[{p}] Added issues.{col} column")
+
+    # Create location_audit_logs table
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS location_audit_logs (
+        id VARCHAR(36) PRIMARY KEY,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        submission_id VARCHAR(36),
+        issue_id VARCHAR(36),
+        actor_id VARCHAR(36),
+        actor_role VARCHAR(50) NOT NULL DEFAULT 'citizen',
+        field_changed VARCHAR(100) NOT NULL,
+        old_value TEXT,
+        new_value TEXT,
+        reason TEXT
+    );
+    """)
+
+    # Migration 011: Complete Civic Complaint Workflow & Demonstration Data Support
+    cur.execute("PRAGMA table_info(issues);")
+    curr_iss_cols = [r[1] for r in cur.fetchall()]
+    m11_iss_cols = [
+        ("is_demo", "BOOLEAN DEFAULT 0"),
+        ("clarification_message", "TEXT"),
+        ("clarification_response", "TEXT"),
+        ("rejection_reason", "TEXT"),
+        ("rejection_by_id", "VARCHAR(36)"),
+    ]
+    for col, col_type in m11_iss_cols:
+        if col not in curr_iss_cols:
+            cur.execute(f"ALTER TABLE issues ADD COLUMN {col} {col_type}")
+            print(f"[{p}] Added issues.{col} column")
+
+    cur.execute("PRAGMA table_info(submissions);")
+    curr_sub_cols = [r[1] for r in cur.fetchall()]
+    if "is_demo" not in curr_sub_cols:
+        cur.execute("ALTER TABLE submissions ADD COLUMN is_demo BOOLEAN DEFAULT 0")
+        print(f"[{p}] Added submissions.is_demo column")
+
+    cur.execute("PRAGMA table_info(assignments);")
+    curr_asgn_cols = [r[1] for r in cur.fetchall()]
+    if "target_date" not in curr_asgn_cols:
+        cur.execute("ALTER TABLE assignments ADD COLUMN target_date TIMESTAMP")
+        print(f"[{p}] Added assignments.target_date column")
+
     conn.commit()
     conn.close()
     print(f"[{p}] Migrations applied successfully.")

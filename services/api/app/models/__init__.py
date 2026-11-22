@@ -24,6 +24,7 @@ from app.models.issues import (
     ModelRun,
     WorkCompletion,
     AIBeforeAfterAnalysis,
+    LocationAuditLog,
 )
 
 __all__ = [
@@ -53,4 +54,5 @@ __all__ = [
     "ModelRun",
     "WorkCompletion",
     "AIBeforeAfterAnalysis",
+    "LocationAuditLog",
 ]

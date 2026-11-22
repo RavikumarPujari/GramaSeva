@@ -393,16 +393,12 @@ export default function SuperAdminDashboard() {
       >
         {/* Sidebar Header & GramaSeva Brand */}
         <div className="h-16 flex items-center justify-between px-4 border-b border-[#1B2D4A] shrink-0 bg-[#071324]">
-          <div className="flex items-center gap-3 overflow-hidden">
-            <div className="w-9 h-9 rounded-xl bg-teal-500/15 text-teal-400 flex items-center justify-center shrink-0 border border-teal-500/30">
-              <ShieldAlert className="w-5 h-5 text-teal-400" />
-            </div>
-            {!isCollapsed && (
-              <div className="truncate">
-                <span className="text-white font-black text-sm tracking-tight block">GramaSeva</span>
-                <span className="text-[10px] text-teal-400 font-bold uppercase tracking-wider block">
-                  Taluk Admin
-                </span>
+          <div className="flex items-center gap-2.5 overflow-hidden">
+            {!isCollapsed ? (
+              <GramaSevaLogo size="sm" inverted={true} />
+            ) : (
+              <div className="w-9 h-9 rounded-xl bg-teal-500/15 text-teal-400 flex items-center justify-center shrink-0 border border-teal-500/30">
+                <ShieldAlert className="w-5 h-5 text-teal-400" />
               </div>
             )}
           </div>

@@ -25,16 +25,32 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 
-# CORS setup
+# CORS setup supporting all development ports and production Vercel domains
 origins = [
     "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:3002",
+    "http://localhost:3003",
+    "http://localhost:3004",
+    "http://localhost:3005",
     "http://127.0.0.1:3000",
-    os.getenv("APP_BASE_URL", "http://localhost:3000"),
+    "http://127.0.0.1:3001",
+    "http://127.0.0.1:3002",
+    "http://127.0.0.1:3003",
+    "http://127.0.0.1:3004",
+    "http://127.0.0.1:3005",
+    "https://grama-seva-rho.vercel.app",
+    "https://grama-seva.vercel.app",
 ]
+
+app_base = os.getenv("APP_BASE_URL", "").rstrip("/")
+if app_base and app_base not in origins:
+    origins.append(app_base)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=r"https://.*\.vercel\.app|http://(localhost|127\.0\.0\.1):\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -80,13 +96,13 @@ def health_check():
 @app.get("/api/v1/meta", status_code=status.HTTP_200_OK)
 def pilot_metadata():
     return {
-        "pilot_name": "FixProof Karnataka Gram Panchayat Pilot",
+        "pilot_name": "GramaSeva Karnataka Gram Panchayat Civic Resolution",
         "supported_locales": ["en", "kn", "hi"],
         "pilot_jurisdiction": {
             "state": "Karnataka",
-            "district": "Mandya",
-            "taluk": "Pandavapura",
-            "default_gp": "Gowdanahalli Gram Panchayat",
+            "district": "Belagavi District",
+            "taluk": "Belagavi Taluk",
+            "default_gp": "Peeranwadi Gram Panchayat",
         },
         "supported_categories": [
             {"code": "road_damage", "label_en": "Road Damage & Potholes"},

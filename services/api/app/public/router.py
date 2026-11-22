@@ -323,8 +323,21 @@ def get_public_issue_detail(
     Returns detailed sanitized projection of an issue for public inspection.
     Includes before & after photographs, cost breakdown where approved, and AI observations.
     Strictly masks citizen phone numbers, emails, and exact home pins.
+    Supports lookup by issue UUID, tracking ID (GS-2026-BEL-XXXX), or reference number.
     """
-    issue = db.query(Issue).filter(Issue.id == issue_id, Issue.status != "DRAFT").first()
+    issue = (
+        db.query(Issue)
+        .filter(
+            (Issue.id == issue_id) | (Issue.reference_number == issue_id),
+            Issue.status != "DRAFT",
+        )
+        .first()
+    )
+    if not issue:
+        sub = db.query(Submission).filter(Submission.tracking_id == issue_id).first()
+        if sub and sub.issue_id:
+            issue = db.query(Issue).filter(Issue.id == sub.issue_id, Issue.status != "DRAFT").first()
+
     if not issue:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
 
@@ -477,6 +490,112 @@ def get_public_issue_detail(
         pdo_officer_title="Village Panchayat Development Officer (PDO)",
         verification_date=issue.resolved_at,
     )
+
+@router.get("/track/{reference_number}", response_model=PublicIssueDetail)
+def track_public_issue(
+    reference_number: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Public tracking endpoint:
+    Allows citizens and auditors to track real-time resolution lifecycle and milestones
+    using either the Tracking ID (e.g., GS-2026-BEL-XXXX, GS-2026-XXXXX) or Issue ID.
+    Never returns 404 for valid submitted reports.
+    """
+    clean_ref = reference_number.strip()
+    return get_public_issue_detail(issue_id=clean_ref, db=db)
+
+class PublicGalleryItem(BaseModel):
+    id: str
+    reference_number: str
+    category: str
+    title: str
+    description: str
+    village_name: str
+    status: str
+    is_demo: bool = False
+    sample_badge: str = "OFFICIAL RESOLUTION"
+    before_photo_url: str
+    after_photo_url: str
+    verified_cost: Optional[float] = None
+    ai_summary: Optional[str] = None
+    submitted_at: datetime
+    resolved_at: Optional[datetime] = None
+
+@router.get("/gallery", response_model=List[PublicGalleryItem])
+def get_public_gallery(
+    category: Optional[str] = Query(None),
+    only_demo: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    """
+    Public Before & After Verification Gallery (Part 7).
+    Showcases resolved civic complaints with photographic evidence side-by-side.
+    Clearly distinguishes safe demonstration records from real citizen complaints.
+    """
+    query = db.query(Issue).filter(Issue.status == "RESOLVED")
+    cat_val = category if isinstance(category, str) and category != "ALL" else None
+    if cat_val:
+        query = query.filter(Issue.category == cat_val)
+    if isinstance(only_demo, bool) and only_demo:
+        query = query.filter(Issue.is_demo == True)
+
+    issues = query.order_by(Issue.is_demo.desc(), Issue.resolved_at.desc()).all()
+    results: List[PublicGalleryItem] = []
+
+    for iss in issues:
+        # Check for both before and after photos
+        b_media = (
+            db.query(MediaAsset)
+            .filter(MediaAsset.issue_id == iss.id, MediaAsset.evidence_role == "CITIZEN_BEFORE", MediaAsset.is_public_approved == True)
+            .first()
+        )
+        a_media = (
+            db.query(MediaAsset)
+            .filter(MediaAsset.issue_id == iss.id, MediaAsset.evidence_role == "WORKER_AFTER", MediaAsset.is_public_approved == True)
+            .first()
+        )
+        if not b_media or not a_media:
+            continue
+
+        v_name = iss.locality_unit.name_en if iss.locality_unit else "Belagavi Taluk"
+        sub = db.query(Submission).filter(Submission.issue_id == iss.id).first()
+        desc = sub.description if sub else (iss.work_completion_description or f"Remediation completed for {iss.category}")
+        title = f"{iss.category.replace('_', ' ').title()} Remediation"
+        if sub and sub.description:
+            lines = [l.strip() for l in sub.description.split("\n") if l.strip()]
+            if lines:
+                title = lines[0][:80]
+
+        ai_an = (
+            db.query(AIBeforeAfterAnalysis)
+            .filter(AIBeforeAfterAnalysis.issue_id == iss.id)
+            .order_by(AIBeforeAfterAnalysis.created_at.desc())
+            .first()
+        )
+        ai_sum = ai_an.difference_summary if ai_an else iss.resolution_review_notes
+
+        results.append(
+            PublicGalleryItem(
+                id=iss.id,
+                reference_number=iss.reference_number,
+                category=iss.category,
+                title=title,
+                description=desc,
+                village_name=v_name,
+                status=iss.status,
+                is_demo=bool(iss.is_demo),
+                sample_badge="DEMO / SAMPLE" if iss.is_demo else "OFFICIAL CITIZEN REPORT",
+                before_photo_url=f"/api/v1/public/media/{b_media.id}/view",
+                after_photo_url=f"/api/v1/public/media/{a_media.id}/view",
+                verified_cost=iss.verified_cost,
+                ai_summary=ai_sum,
+                submitted_at=iss.created_at,
+                resolved_at=iss.resolved_at,
+            )
+        )
+
+    return results
 
 @router.get("/media/{media_id}/view")
 def view_public_media(

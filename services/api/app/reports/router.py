@@ -17,9 +17,10 @@ from app.models.issues import (
     StatusEvent,
     Job,
     DuplicateCandidate,
+    LocationAuditLog,
 )
 from app.storage.service import storage_service
-from app.auth.dependencies import get_current_user, require_roles
+from app.auth.dependencies import get_current_user, get_optional_current_user, require_roles
 from app.reports.schemas import (
     DraftCreateRequest,
     DraftUpdateRequest,
@@ -28,6 +29,7 @@ from app.reports.schemas import (
     MediaAssetResponse,
     StatusEventResponse,
     DuplicateSuggestionItem,
+    CheckDuplicatesRequest,
     OfflineDraftSyncItem,
     SyncReportResponse,
 )
@@ -37,10 +39,18 @@ from workers.adapters.duplicate.similarity import rank_duplicate_candidate
 
 router = APIRouter(prefix="/reports", tags=["Citizen Reporting & Evidence"])
 
-def generate_tracking_id() -> str:
+def generate_tracking_id(db: Optional[Session] = None) -> str:
     year = datetime.now(timezone.utc).year
-    rand_suffix = random.randint(10000, 99999)
-    return f"GS-{year}-{rand_suffix}"
+    for _ in range(20):
+        rand_suffix = random.randint(10000, 99999)
+        candidate = f"GS-{year}-{rand_suffix}"
+        if db is not None:
+            collision = db.query(Issue).filter(Issue.reference_number == candidate).first()
+            if not collision:
+                return candidate
+        else:
+            return candidate
+    return f"GS-{year}-{random.randint(10000, 99999)}{uuid.uuid4().hex[:2].upper()}"
 
 def build_report_response(submission: Submission, issue: Optional[Issue], db: Session) -> ReportResponse:
     media = (
@@ -89,9 +99,50 @@ def build_report_response(submission: Submission, issue: Optional[Issue], db: Se
         status=current_status,
         village_name=submission.village_name,
         ward_name=submission.ward_name,
+        taluk_name=getattr(submission, "taluk_name", "Belagavi Taluk") or "Belagavi Taluk",
         locality_unit_id=submission.locality_unit_id,
         latitude=submission.latitude,
         longitude=submission.longitude,
+        reporter_name=getattr(submission, "reporter_name", None),
+        reporter_phone=getattr(submission, "reporter_phone", None),
+        is_guest=bool(getattr(submission, "is_guest", False)),
+        location_method=getattr(submission, "location_method", "GPS_VERIFIED") or "GPS_VERIFIED",
+        gps_accuracy=getattr(submission, "gps_accuracy", None),
+        voice_transcription=getattr(submission, "voice_transcription", None),
+        annotated_media_id=getattr(submission, "annotated_media_id", None),
+        ai_category_suggestion=getattr(submission, "ai_category_suggestion", None),
+        ai_confidence=getattr(submission, "ai_confidence", None),
+        confirmed_latitude=getattr(submission, "confirmed_latitude", None),
+        confirmed_longitude=getattr(submission, "confirmed_longitude", None),
+        confirmed_village=getattr(submission, "confirmed_village", None),
+        confirmed_address=getattr(submission, "confirmed_address", None),
+        confirmation_method=getattr(submission, "confirmation_method", "CITIZEN_CONFIRMED") or "CITIZEN_CONFIRMED",
+        jurisdiction_status=getattr(submission, "jurisdiction_status", "VERIFIED") or "VERIFIED",
+        location_conflict_flag=bool(getattr(submission, "location_conflict_flag", False)),
+        location_conflict_details=getattr(submission, "location_conflict_details", None),
+        ocr_extracted_text=getattr(submission, "ocr_extracted_text", None),
+        ocr_detections_json=getattr(submission, "ocr_detections_json", None),
+        landmark_candidates_json=getattr(submission, "landmark_candidates_json", None),
+        photo_location_status=getattr(submission, "photo_location_status", None),
+        photo_location_provider=getattr(submission, "photo_location_provider", None),
+        gps_timestamp=getattr(submission, "gps_timestamp", None),
+        detected_village=getattr(submission, "detected_village", None),
+        detected_taluk=getattr(submission, "detected_taluk", None),
+        detected_district=getattr(submission, "detected_district", None),
+        detected_state=getattr(submission, "detected_state", None),
+        detected_country=getattr(submission, "detected_country", "India") or "India",
+        detected_postal_code=getattr(submission, "detected_postal_code", None),
+        google_place_id=getattr(submission, "google_place_id", None),
+        geocoding_status=getattr(submission, "geocoding_status", None),
+        location_confirmation_status=getattr(submission, "location_confirmation_status", "UNCONFIRMED") or "UNCONFIRMED",
+        clarification_message=getattr(issue, "clarification_message", None) if issue else None,
+        clarification_response=getattr(issue, "clarification_response", None) if issue else None,
+        rejection_reason=getattr(issue, "rejection_reason", None) if issue else None,
+        rejection_by_id=getattr(issue, "rejection_by_id", None) if issue else None,
+        is_demo=bool(getattr(issue, "is_demo", False)) if issue else bool(getattr(submission, "is_demo", False)),
+        verified_cost=getattr(issue, "verified_cost", None) if issue else None,
+        cost_status=getattr(issue, "cost_status", None) if issue else None,
+        work_completed_at=getattr(issue, "work_completed_at", None) if issue else None,
         created_at=submission.created_at,
         media_assets=media_responses,
         timeline=events,
@@ -100,11 +151,11 @@ def build_report_response(submission: Submission, issue: Optional[Issue], db: Se
 @router.post("/drafts", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
 def create_draft(
     req: DraftCreateRequest,
-    current_user: Profile = Depends(get_current_user),
+    current_user: Optional[Profile] = Depends(get_optional_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Creates a new draft complaint for the citizen.
+    Creates a new draft complaint for authenticated citizen or guest.
     Persists draft before any AI or external calls.
     """
     org = db.query(Organization).first()
@@ -114,7 +165,36 @@ def create_draft(
             detail="Pilot organization not initialized. Run seed script first.",
         )
 
-    tracking_id = generate_tracking_id()
+    # Resolve or create guest citizen profile if unauthenticated
+    is_guest = bool(req.is_guest) or (current_user is None)
+    if not current_user:
+        clean_phone = "".join([c for c in (req.reporter_phone or "") if c.isdigit() or c == "+"])
+        guest_email = f"guest_{clean_phone[-10:] if len(clean_phone) >= 10 else uuid.uuid4().hex[:8]}@gramaseva.internal"
+        guest_profile = db.query(Profile).filter(Profile.email == guest_email).first()
+        if not guest_profile:
+            guest_profile = Profile(
+                id=str(uuid.uuid4()),
+                email=guest_email,
+                password_hash="GUEST_CITIZEN_NO_LOGIN",
+                full_name=req.reporter_name or "Guest Citizen",
+                phone_number=clean_phone or None,
+                preferred_locale=req.locale or "en",
+                taluk=req.taluk_name or "Belagavi Taluk",
+                is_active=True,
+            )
+            db.add(guest_profile)
+            db.flush()
+            ra = RoleAssignment(
+                profile_id=guest_profile.id,
+                role="citizen",
+                is_active=True,
+            )
+            db.add(ra)
+            db.flush()
+        current_user = guest_profile
+        is_guest = True
+
+    tracking_id = generate_tracking_id(db)
 
     # 1. Create linked Issue with DRAFT status
     issue = Issue(
@@ -144,9 +224,48 @@ def create_draft(
         locality_unit_id=req.locality_unit_id,
         village_name=req.village_name,
         ward_name=req.ward_name,
+        taluk_name=req.taluk_name or "Belagavi Taluk",
         latitude=req.latitude,
         longitude=req.longitude,
+        reporter_name=req.reporter_name or current_user.full_name,
+        reporter_phone=req.reporter_phone or current_user.phone_number,
+        is_guest=is_guest,
+        location_method=req.location_method or "GPS_VERIFIED",
+        gps_accuracy=req.gps_accuracy,
+        voice_transcription=req.voice_transcription,
+        annotated_media_id=req.annotated_media_id,
+        ai_category_suggestion=req.ai_category_suggestion,
+        ai_confidence=req.ai_confidence,
+        confirmed_latitude=req.confirmed_latitude,
+        confirmed_longitude=req.confirmed_longitude,
+        confirmed_village=req.confirmed_village,
+        confirmed_address=req.confirmed_address,
+        confirmation_method=req.confirmation_method or "CITIZEN_CONFIRMED",
+        jurisdiction_status=req.jurisdiction_status or "VERIFIED",
+        location_conflict_flag=bool(req.location_conflict_flag),
+        location_conflict_details=req.location_conflict_details,
+        ocr_extracted_text=req.ocr_extracted_text,
+        ocr_detections_json=req.ocr_detections_json,
+        landmark_candidates_json=req.landmark_candidates_json,
+        photo_location_status=req.photo_location_status,
+        photo_location_provider=req.photo_location_provider,
+        gps_timestamp=req.gps_timestamp,
+        detected_village=req.detected_village,
+        detected_taluk=req.detected_taluk,
+        detected_district=req.detected_district,
+        detected_state=req.detected_state,
+        detected_country=req.detected_country or "India",
+        detected_postal_code=req.detected_postal_code,
+        google_place_id=req.google_place_id,
+        geocoding_status=req.geocoding_status,
+        location_confirmation_status=req.location_confirmation_status or "UNCONFIRMED",
     )
+    if req.jurisdiction_status:
+        issue.jurisdiction_status = req.jurisdiction_status
+    if req.location_conflict_flag is not None:
+        issue.has_location_conflict = bool(req.location_conflict_flag)
+    if req.location_conflict_details:
+        issue.location_conflict_details = req.location_conflict_details
     db.add(submission)
 
     # 3. Create initial status event
@@ -217,6 +336,40 @@ def update_draft(
         if issue:
             issue.longitude = req.longitude
             issue.public_longitude = round(req.longitude, 3)
+    if req.confirmed_latitude is not None:
+        submission.confirmed_latitude = req.confirmed_latitude
+    if req.confirmed_longitude is not None:
+        submission.confirmed_longitude = req.confirmed_longitude
+    if req.confirmed_village is not None:
+        submission.confirmed_village = req.confirmed_village
+    if req.confirmed_address is not None:
+        submission.confirmed_address = req.confirmed_address
+    if req.confirmation_method is not None:
+        submission.confirmation_method = req.confirmation_method
+    if req.jurisdiction_status is not None:
+        submission.jurisdiction_status = req.jurisdiction_status
+        if issue:
+            issue.jurisdiction_status = req.jurisdiction_status
+    if req.location_conflict_flag is not None:
+        submission.location_conflict_flag = req.location_conflict_flag
+        if issue:
+            issue.has_location_conflict = req.location_conflict_flag
+    if req.location_conflict_details is not None:
+        submission.location_conflict_details = req.location_conflict_details
+        if issue:
+            issue.location_conflict_details = req.location_conflict_details
+    if req.ocr_extracted_text is not None:
+        submission.ocr_extracted_text = req.ocr_extracted_text
+    if req.ocr_detections_json is not None:
+        submission.ocr_detections_json = req.ocr_detections_json
+    if req.landmark_candidates_json is not None:
+        submission.landmark_candidates_json = req.landmark_candidates_json
+    if req.photo_location_status is not None:
+        submission.photo_location_status = req.photo_location_status
+    if req.photo_location_provider is not None:
+        submission.photo_location_provider = req.photo_location_provider
+    if req.gps_timestamp is not None:
+        submission.gps_timestamp = req.gps_timestamp
 
     db.commit()
     db.refresh(submission)
@@ -229,22 +382,25 @@ def update_draft(
 async def upload_report_media(
     id: str,
     file: UploadFile = File(...),
-    current_user: Profile = Depends(get_current_user),
+    current_user: Optional[Profile] = Depends(get_optional_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Validates and uploads private photo evidence for a complaint draft.
     Validates actual magic bytes, dimensions, and computes SHA-256 hash.
+    Supports authenticated citizens and guest submissions.
     """
     submission = db.query(Submission).filter(Submission.id == id).first()
     if not submission:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Draft not found")
 
-    if submission.reporter_id != current_user.id:
+    if current_user and submission.reporter_id != current_user.id and not getattr(submission, "is_guest", False):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to add media to this draft",
         )
+
+    actor_id = current_user.id if current_user else submission.reporter_id
 
     file_bytes = await file.read()
     storage_path, mime_type, size_bytes, file_hash = storage_service.store_private_media(
@@ -252,7 +408,7 @@ async def upload_report_media(
     )
 
     media = MediaAsset(
-        profile_id=current_user.id,
+        profile_id=actor_id,
         submission_id=submission.id,
         issue_id=submission.issue_id,
         evidence_role="CITIZEN_BEFORE",
@@ -280,22 +436,25 @@ async def upload_report_media(
 def submit_report(
     id: str,
     req: SubmitReportRequest,
-    current_user: Profile = Depends(get_current_user),
+    current_user: Optional[Profile] = Depends(get_optional_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Finalizes submission from DRAFT to SUBMITTED.
     Enforces evidence requirement and audit events.
+    Supports authenticated citizens and guest submissions.
     """
     submission = db.query(Submission).filter(Submission.id == id).first()
     if not submission:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Draft not found")
 
-    if submission.reporter_id != current_user.id:
+    if current_user and submission.reporter_id != current_user.id and not getattr(submission, "is_guest", False):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to submit this report",
         )
+
+    actor_id = current_user.id if current_user else submission.reporter_id
 
     issue = db.query(Issue).filter(Issue.id == submission.issue_id).first()
     if not issue:
@@ -401,6 +560,10 @@ def submit_report(
     else:
         event_reason = "Citizen completed submission with photo evidence"
 
+    # Ensure all media assets for this submission are attached to the issue
+    for m in db.query(MediaAsset).filter(MediaAsset.submission_id == submission.id).all():
+        m.issue_id = issue.id
+
     # Transition status
     issue.status = "SUBMITTED"
 
@@ -429,13 +592,253 @@ def submit_report(
     from app.notifications.service import notification_service
     notification_service.send_notification(
         db=db,
-        profile_id=current_user.id,
+        profile_id=actor_id,
         event_type="SUBMISSION_RECEIVED",
         reference_number=submission.tracking_id,
         issue_id=issue.id,
         locale=submission.locale,
         dedup_suffix="initial-submit",
     )
+
+    return build_report_response(submission, issue, db)
+
+@router.post("/submit", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
+async def submit_report_atomic(
+    file: UploadFile = File(...),
+    category: str = Form("road_damage"),
+    title: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    village_name: Optional[str] = Form(None),
+    ward_name: Optional[str] = Form(None),
+    taluk_name: Optional[str] = Form("Belagavi Taluk"),
+    latitude: Optional[float] = Form(None),
+    longitude: Optional[float] = Form(None),
+    citizen_name: Optional[str] = Form(None),
+    citizen_phone: Optional[str] = Form(None),
+    is_guest: Optional[bool] = Form(True),
+    location_method: Optional[str] = Form("GPS_VERIFIED"),
+    gps_accuracy: Optional[float] = Form(None),
+    voice_transcription: Optional[str] = Form(None),
+    ai_category_suggestion: Optional[str] = Form(None),
+    ai_confidence: Optional[float] = Form(None),
+    confirmed_latitude: Optional[float] = Form(None),
+    confirmed_longitude: Optional[float] = Form(None),
+    confirmed_village: Optional[str] = Form(None),
+    confirmed_address: Optional[str] = Form(None),
+    confirmation_method: Optional[str] = Form("CITIZEN_CONFIRMED"),
+    jurisdiction_status: Optional[str] = Form("VERIFIED"),
+    location_conflict_flag: Optional[bool] = Form(False),
+    location_conflict_details: Optional[str] = Form(None),
+    ocr_extracted_text: Optional[str] = Form(None),
+    ocr_detections_json: Optional[str] = Form(None),
+    landmark_candidates_json: Optional[str] = Form(None),
+    photo_location_status: Optional[str] = Form(None),
+    photo_location_provider: Optional[str] = Form(None),
+    detected_village: Optional[str] = Form(None),
+    detected_taluk: Optional[str] = Form(None),
+    detected_district: Optional[str] = Form(None),
+    detected_state: Optional[str] = Form(None),
+    detected_country: Optional[str] = Form("India"),
+    detected_postal_code: Optional[str] = Form(None),
+    google_place_id: Optional[str] = Form(None),
+    geocoding_status: Optional[str] = Form(None),
+    location_confirmation_status: Optional[str] = Form("UNCONFIRMED"),
+    current_user: Optional[Profile] = Depends(get_optional_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Direct atomic complaint submission endpoint:
+    Accepts evidence photo and complaint details in one single HTTP request.
+    Creates Issue, Submission, MediaAsset, and queues background triage atomically.
+    """
+    org = db.query(Organization).first()
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Pilot organization not initialized. Run seed script first.",
+        )
+
+    # 1. Resolve or create citizen / guest profile
+    guest_flag = bool(is_guest) or (current_user is None)
+    if not current_user:
+        clean_phone = "".join([c for c in (citizen_phone or "") if c.isdigit() or c == "+"])
+        guest_email = f"guest_{clean_phone[-10:] if len(clean_phone) >= 10 else uuid.uuid4().hex[:8]}@gramaseva.internal"
+        guest_profile = db.query(Profile).filter(Profile.email == guest_email).first()
+        if not guest_profile:
+            guest_profile = Profile(
+                id=str(uuid.uuid4()),
+                email=guest_email,
+                password_hash="GUEST_CITIZEN_NO_LOGIN",
+                full_name=citizen_name or "Guest Citizen",
+                phone_number=clean_phone or None,
+                preferred_locale="en",
+                taluk=taluk_name or "Belagavi Taluk",
+                is_active=True,
+            )
+            db.add(guest_profile)
+            db.flush()
+            ra = RoleAssignment(
+                profile_id=guest_profile.id,
+                role="citizen",
+                is_active=True,
+            )
+            db.add(ra)
+            db.flush()
+        current_user = guest_profile
+
+    # 2. Store photo evidence
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded evidence photo is empty.")
+
+    storage_path, mime_type, size_bytes, file_hash = storage_service.store_private_media(
+        file_bytes, file.filename or "evidence.jpg"
+    )
+
+    # 3. Resolve Locality Unit
+    locality_unit_id = None
+    if village_name:
+        loc = db.query(LocalityUnit).filter(
+            LocalityUnit.name_en.ilike(f"%{village_name}%")
+        ).first()
+        if loc:
+            locality_unit_id = loc.id
+
+    # 4. Generate Unique Tracking ID
+    tracking_id = generate_tracking_id(db)
+
+    full_desc = description or ""
+    if title and title not in full_desc:
+        full_desc = f"{title}\n\n{full_desc}" if full_desc else title
+
+    # 5. Create Issue
+    issue = Issue(
+        reference_number=tracking_id,
+        category=category,
+        status="SUBMITTED",
+        priority="MEDIUM",
+        organization_id=org.id,
+        locality_unit_id=locality_unit_id,
+        latitude=confirmed_latitude or latitude,
+        longitude=confirmed_longitude or longitude,
+        public_latitude=round(confirmed_latitude or latitude, 3) if (confirmed_latitude or latitude) else None,
+        public_longitude=round(confirmed_longitude or longitude, 3) if (confirmed_longitude or longitude) else None,
+        jurisdiction_status=jurisdiction_status or "VERIFIED",
+        has_location_conflict=bool(location_conflict_flag),
+        location_conflict_details=location_conflict_details,
+    )
+    db.add(issue)
+    db.flush()
+
+    # 6. Create Submission
+    submission = Submission(
+        tracking_id=tracking_id,
+        reporter_id=current_user.id,
+        issue_id=issue.id,
+        category=category,
+        description=full_desc,
+        locale="en",
+        original_text=full_desc,
+        locality_unit_id=locality_unit_id,
+        village_name=confirmed_village or village_name,
+        ward_name=ward_name,
+        taluk_name=taluk_name or "Belagavi Taluk",
+        latitude=latitude,
+        longitude=longitude,
+        reporter_name=citizen_name or current_user.full_name,
+        reporter_phone=citizen_phone or current_user.phone_number,
+        is_guest=guest_flag,
+        location_method=location_method or "GPS_VERIFIED",
+        gps_accuracy=gps_accuracy,
+        voice_transcription=voice_transcription,
+        ai_category_suggestion=ai_category_suggestion,
+        ai_confidence=ai_confidence,
+        confirmed_latitude=confirmed_latitude or latitude,
+        confirmed_longitude=confirmed_longitude or longitude,
+        confirmed_village=confirmed_village or village_name,
+        confirmed_address=confirmed_address,
+        confirmation_method=confirmation_method or "CITIZEN_CONFIRMED",
+        jurisdiction_status=jurisdiction_status or "VERIFIED",
+        location_conflict_flag=bool(location_conflict_flag),
+        location_conflict_details=location_conflict_details,
+        ocr_extracted_text=ocr_extracted_text,
+        ocr_detections_json=ocr_detections_json,
+        landmark_candidates_json=landmark_candidates_json,
+        photo_location_status=photo_location_status,
+        photo_location_provider=photo_location_provider,
+        detected_village=detected_village,
+        detected_taluk=detected_taluk,
+        detected_district=detected_district,
+        detected_state=detected_state,
+        detected_country=detected_country or "India",
+        detected_postal_code=detected_postal_code,
+        google_place_id=google_place_id,
+        geocoding_status=geocoding_status,
+        location_confirmation_status=location_confirmation_status or "UNCONFIRMED",
+    )
+    db.add(submission)
+    db.flush()
+
+    # Location Audit Log
+    if (confirmed_latitude is not None or latitude is not None):
+        try:
+            audit_log = LocationAuditLog(
+                id=str(uuid.uuid4()),
+                submission_id=submission.id,
+                issue_id=issue.id,
+                actor_id=current_user.id,
+                actor_role="citizen",
+                field_changed="coordinates_and_jurisdiction",
+                old_value=None,
+                new_value=json.dumps({
+                    "latitude": confirmed_latitude or latitude,
+                    "longitude": confirmed_longitude or longitude,
+                    "village": confirmed_village or village_name,
+                    "jurisdiction_status": jurisdiction_status or "VERIFIED",
+                    "location_conflict": bool(location_conflict_flag),
+                }),
+                reason=f"Citizen confirmed complaint location via {confirmation_method or location_method}",
+            )
+            db.add(audit_log)
+        except Exception as e:
+            print("Location audit log recording notice:", e)
+
+    # 7. Create MediaAsset
+    media = MediaAsset(
+        profile_id=current_user.id,
+        submission_id=submission.id,
+        issue_id=issue.id,
+        evidence_role="CITIZEN_BEFORE",
+        storage_path=storage_path,
+        file_hash=file_hash,
+        mime_type=mime_type,
+        file_size_bytes=size_bytes,
+        is_quarantined=False,
+        is_public_approved=False,
+    )
+    db.add(media)
+
+    # 8. Status Event
+    event = StatusEvent(
+        issue_id=issue.id,
+        actor_profile_id=current_user.id,
+        previous_status=None,
+        next_status="SUBMITTED",
+        reason="Citizen submitted complaint with photographic evidence",
+    )
+    db.add(event)
+
+    # 9. Queue Triage Job
+    job = Job(
+        task_name="triage_submission",
+        payload_json=f'{{"submission_id": "{submission.id}", "issue_id": "{issue.id}"}}',
+        status="QUEUED",
+    )
+    db.add(job)
+
+    db.commit()
+    db.refresh(submission)
+    db.refresh(issue)
 
     return build_report_response(submission, issue, db)
 
@@ -595,6 +998,78 @@ def dispute_report(
         "dispute_id": dispute.id,
     }
 
+class CitizenClarificationRequest(BaseModel):
+    message: Optional[str] = None
+    clarification_response: Optional[str] = None
+
+@router.post("/{id}/clarify")
+def submit_citizen_clarification(
+    id: str,
+    req: CitizenClarificationRequest,
+    current_user: Profile = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Citizen responds to PDO clarification request (Part 2, Step 3 & Part 6).
+    Appends clarification response, transitions status from NEEDS_INFORMATION / AWAITING_INFORMATION
+    back to UNDER_REVIEW, and alerts the PDO.
+    """
+    response_text = (req.message or req.clarification_response or "").strip()
+    if not response_text:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Clarification response message cannot be empty")
+
+    submission = db.query(Submission).filter((Submission.id == id) | (Submission.tracking_id == id)).first()
+    if not submission:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+
+    if submission.reporter_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the reporting citizen can submit clarification for this report")
+
+    issue = db.query(Issue).filter(Issue.id == submission.issue_id).first()
+    if not issue:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Associated issue missing")
+
+    prev_status = issue.status
+    issue.clarification_response = response_text
+    issue.status = "UNDER_REVIEW"
+
+    # Append to description for operational transparency
+    if issue.clarification_message:
+        issue.resolution_review_notes = (
+            f"{issue.resolution_review_notes or ''}\n[Clarification Requested]: {issue.clarification_message}\n[Citizen Response]: {response_text}"
+        ).strip()
+
+    event = StatusEvent(
+        issue_id=issue.id,
+        actor_profile_id=current_user.id,
+        previous_status=prev_status,
+        next_status="UNDER_REVIEW",
+        reason=f"Citizen provided requested clarification: {response_text}",
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(submission)
+    db.refresh(issue)
+
+    # In-app notification for reviewer
+    try:
+        from app.notifications.service import notification_service
+        if issue.reviewed_by_id:
+            notification_service.send_notification(
+                db=db,
+                profile_id=issue.reviewed_by_id,
+                event_type="CLARIFICATION_PROVIDED",
+                reference_number=issue.reference_number,
+                issue_id=issue.id,
+                locale=submission.locale,
+                custom_message=f"Citizen responded to clarification for {issue.reference_number}: {req.message.strip()}",
+                dedup_suffix=f"clarify-resp-{issue.id[:8]}",
+            )
+    except Exception:
+        pass
+
+    return build_report_response(submission, issue, db)
+
 class FeedbackRequest(BaseModel):
     rating: int  # 1 to 5
     comment: Optional[str] = None
@@ -679,6 +1154,78 @@ def get_report_feedback(
         "is_satisfied": fb.is_satisfied,
         "created_at": fb.created_at,
     }
+
+@router.post("/check-duplicates", response_model=List[DuplicateSuggestionItem])
+def check_duplicate_complaints(
+    req: CheckDuplicatesRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Checks active complaints for potential duplicates based on spatial proximity,
+    category match, and description similarity before citizen confirms submission.
+    """
+    query = (
+        db.query(Issue)
+        .filter(
+            Issue.status.in_(["SUBMITTED", "UNDER_REVIEW", "ASSIGNED", "IN_PROGRESS", "REPAIR_REPORTED"])
+        )
+    )
+    if req.category:
+        query = query.filter(Issue.category == req.category)
+
+    other_issues = query.all()
+    suggestions: List[DuplicateSuggestionItem] = []
+    max_radius = req.max_radius or 1000.0
+
+    for issue in other_issues:
+        target_sub = db.query(Submission).filter(Submission.issue_id == issue.id).order_by(Submission.created_at.asc()).first()
+        target_desc = target_sub.description if target_sub else ""
+        target_lat = issue.latitude or (target_sub.latitude if target_sub else None)
+        target_lon = issue.longitude or (target_sub.longitude if target_sub else None)
+
+        target_media = db.query(MediaAsset).filter(MediaAsset.issue_id == issue.id).first()
+        target_hash = target_media.file_hash if target_media else None
+
+        rank_res = rank_duplicate_candidate(
+            sub_lat=req.latitude,
+            sub_lon=req.longitude,
+            sub_desc=req.description or "",
+            sub_hash=None,
+            issue_lat=target_lat,
+            issue_lon=target_lon,
+            issue_desc=target_desc,
+            issue_hash=target_hash,
+            category_match=bool(req.category and issue.category == req.category),
+            max_radius=max_radius,
+        )
+
+        distance = rank_res["distance_meters"]
+        if req.latitude and req.longitude and target_lat and target_lon:
+            if distance > max_radius and rank_res["composite_score"] < 0.35:
+                continue
+        elif rank_res["composite_score"] < 0.2:
+            continue
+
+        ward_name = issue.locality_unit.name_en if issue.locality_unit else "Ward Unknown"
+
+        suggestions.append(
+            DuplicateSuggestionItem(
+                issue_id=issue.id,
+                reference_number=issue.reference_number,
+                category=issue.category,
+                status=issue.status,
+                distance_meters=distance,
+                summary=f"{issue.category.replace('_', ' ').title()} at {ward_name}",
+                ward_name=ward_name,
+                composite_score=rank_res["composite_score"],
+                explanation=rank_res["explanation"],
+                target_media_id=target_media.id if target_media else None,
+                created_at=issue.created_at,
+            )
+        )
+
+    suggestions.sort(key=lambda s: s.composite_score, reverse=True)
+    return suggestions[:5]
 
 @router.get("/{id}/duplicate-suggestions", response_model=List[DuplicateSuggestionItem])
 def get_report_duplicate_suggestions(
@@ -794,7 +1341,7 @@ def sync_offline_drafts(
             continue
 
         # Create new issue & submission atomically
-        tracking_id = generate_tracking_id()
+        tracking_id = generate_tracking_id(db)
         unique_ref = f"{tracking_id}"
 
         issue = Issue(

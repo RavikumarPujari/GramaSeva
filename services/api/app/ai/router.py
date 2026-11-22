@@ -1,10 +1,23 @@
 import sys
 import os
 import json
+import base64
+import io
+import math
+import time
+import uuid
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, Form, status
 from pydantic import BaseModel
+from PIL import Image, ImageDraw
 from sqlalchemy.orm import Session
+from app.ai.gemini_service import gemini_service
+from app.ai.roboflow_service import roboflow_service
+from app.ai.orchestrator import ai_orchestrator
+from app.services.roboflow.inference_service import roboflow_central_engine
+from app.services.roboflow.model_registry import model_registry
+from app.services.location.ocr_service import ocr_location_service
+from app.services.location.landmark_service import landmark_service
 from app.core.database import get_db
 from app.models.users import Profile
 from app.models.issues import MediaAsset, Issue, Submission, ModelRun
@@ -395,3 +408,294 @@ def confirm_model_run_suggestion(
         "confirmed_decision": run.confirmed_decision,
         "confirmed_by": current_user.full_name,
     }
+
+class ModelSummaryItem(BaseModel):
+    model_key: str
+    model_name: str
+    model_id: str
+    status: str
+    primary_category: Optional[str] = None
+    defect_label: Optional[str] = None
+    confidence_score: Optional[float] = None
+    detections_count: int = 0
+    latency_ms: int = 0
+    error: Optional[str] = None
+
+class UnifiedAIAnalysisResponse(BaseModel):
+    status: str
+    issue_title: str
+    predicted_category: str
+    defect_label: Optional[str] = None
+    confidence_score: Optional[float] = None
+    ai_description: str
+    observations: List[DetectionItem] = []
+    requires_human_review: bool = True
+    model_id: str
+    model_provider: str = "roboflow-multi-model"
+    latency_ms: int
+    annotated_image_base64: Optional[str] = None
+    model_summaries: List[ModelSummaryItem] = []
+    comparison: Optional[Dict[str, Any]] = None
+    ai_consensus_status: Optional[str] = None
+    duplicate_detected: bool = False
+    duplicate_message: Optional[str] = None
+    duplicate_issue_id: Optional[str] = None
+    duplicate_tracking_id: Optional[str] = None
+    duplicate_distance_meters: Optional[float] = None
+    ocr_location_clues: Optional[Dict[str, Any]] = None
+    landmark_candidates: Optional[List[Dict[str, Any]]] = None
+    photo_location_status: Optional[str] = "NOT_EVALUATED"
+    photo_location_summary: Optional[str] = None
+
+def _run_analysis_pipeline(
+    file: UploadFile,
+    latitude: Optional[float],
+    longitude: Optional[float],
+    village_name: Optional[str],
+    category_hint: Optional[str],
+    full_evaluation: bool,
+    db: Session,
+) -> UnifiedAIAnalysisResponse:
+    file_bytes = file.file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    res = ai_orchestrator.orchestrate_complaint_analysis(
+        image_bytes=file_bytes,
+        filename=file.filename or "upload.jpg",
+        latitude=latitude,
+        longitude=longitude,
+        village_name=village_name,
+        category_hint=category_hint,
+        full_evaluation=full_evaluation,
+        db=db,
+    )
+
+    if res.get("status") == "error":
+        raise HTTPException(status_code=400, detail=res.get("error", "Analysis failed."))
+
+    obs_list = [
+        DetectionItem(
+            class_id=o["class_id"],
+            label=o["label"],
+            confidence=o["confidence"],
+            bbox=o["bbox"],
+        )
+        for o in res.get("observations", [])
+    ]
+
+    summaries_list = [
+        ModelSummaryItem(
+            model_key=m.get("model_key", ""),
+            model_name=m.get("model_name", ""),
+            model_id=m.get("model_id", ""),
+            status=m.get("status", "COMPLETED"),
+            primary_category=m.get("primary_category"),
+            defect_label=m.get("defect_label"),
+            confidence_score=m.get("confidence_score"),
+            detections_count=m.get("detections_count", 0),
+            latency_ms=m.get("latency_ms", 0),
+            error=m.get("error"),
+        )
+        for m in res.get("model_summaries", [])
+    ]
+
+    return UnifiedAIAnalysisResponse(
+        status=res["status"],
+        issue_title=res["issue_title"],
+        predicted_category=res["predicted_category"],
+        defect_label=res["defect_label"],
+        confidence_score=res["confidence_score"],
+        ai_description=res["ai_description"],
+        observations=obs_list,
+        requires_human_review=res.get("requires_human_review", True),
+        model_id=res["model_id"],
+        model_provider=res["model_provider"],
+        latency_ms=res["latency_ms"],
+        annotated_image_base64=res.get("annotated_image_base64"),
+        model_summaries=summaries_list,
+        comparison=res.get("comparison"),
+        ai_consensus_status=res.get("ai_consensus_status"),
+        duplicate_detected=res.get("duplicate_detected", False),
+        duplicate_message=res.get("duplicate_message"),
+        duplicate_issue_id=res.get("duplicate_issue_id"),
+        duplicate_tracking_id=res.get("duplicate_tracking_id"),
+        duplicate_distance_meters=res.get("duplicate_distance_meters"),
+        ocr_location_clues=res.get("ocr_location_clues"),
+        landmark_candidates=res.get("landmark_candidates"),
+        photo_location_status=res.get("photo_location_status", "NOT_EVALUATED"),
+        photo_location_summary=res.get("photo_location_summary"),
+    )
+
+@router.post("/analyze-complaint", response_model=UnifiedAIAnalysisResponse)
+def analyze_complaint(
+    file: UploadFile = File(...),
+    latitude: Optional[float] = Form(None),
+    longitude: Optional[float] = Form(None),
+    village_name: Optional[str] = Form(None),
+    category_hint: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Dedicated Stage 3 Multi-Model AI Analysis Endpoint with Specialist Routing.
+    """
+    return _run_analysis_pipeline(
+        file=file,
+        latitude=latitude,
+        longitude=longitude,
+        village_name=village_name,
+        category_hint=category_hint,
+        full_evaluation=False,
+        db=db,
+    )
+
+@router.post("/full-evaluation", response_model=UnifiedAIAnalysisResponse)
+def full_ai_evaluation(
+    file: UploadFile = File(...),
+    latitude: Optional[float] = Form(None),
+    longitude: Optional[float] = Form(None),
+    village_name: Optional[str] = Form(None),
+    category_hint: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Runs full evaluation across all 5 Roboflow models simultaneously (Part 5).
+    """
+    return _run_analysis_pipeline(
+        file=file,
+        latitude=latitude,
+        longitude=longitude,
+        village_name=village_name,
+        category_hint=category_hint,
+        full_evaluation=True,
+        db=db,
+    )
+
+@router.get("/models/status")
+def get_ai_models_status():
+    """
+    Returns live readiness, configuration, and health metadata of all 5 Roboflow models:
+    - Garbage Detection Specialist (garbage_detection-wvzwv-n8vsv/1)
+    - Road Damage Specialist (road-damage-detection-fn0qh/1)
+    - Waterlogging Specialist (water-logging-a7zhi/1)
+    - Civic Issues 1 (civic-issues-lroee/3)
+    - Civic Issues 2 (civic-issues-nq7sy-bh8t3/1)
+    """
+    return model_registry.get_status_summary()
+
+class GeminiProblemAnalysisResponse(BaseModel):
+    is_civic_issue: bool
+    suggested_category: str
+    title: str
+    description: str
+    severity: str
+    visual_summary: str
+    detected_elements: List[str] = []
+    ocr_text: List[str] = []
+    uncertainty_explanation: Optional[str] = None
+    confidence: float
+    source: str
+
+@router.post("/gemini/analyze-problem", response_model=GeminiProblemAnalysisResponse)
+async def analyze_problem_image_with_gemini(
+    file: UploadFile = File(...),
+    category_hint: Optional[str] = Form(None),
+    village_name: Optional[str] = Form(None),
+):
+    """
+    Dedicated Gemini Vision multimodal analysis endpoint for citizen problem photos (Part 1, Step 4).
+    Suggests category, generates problem title and description, assesses severity, extracts OCR text,
+    and explains uncertainty when unclear. Strictly never invents GPS coordinates or village names.
+    """
+    img_bytes = await file.read()
+    if not img_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded image is empty")
+
+    # 1. Visual multimodal analysis
+    analysis = gemini_service.analyze_image(
+        image_bytes=img_bytes,
+        context={"category_hint": category_hint or "", "village_name": village_name or "Belagavi Taluk"},
+    )
+
+    # Category normalization to GramaSeva standard categories
+    raw_cat = (analysis.get("primary_category") or category_hint or "OTHER").upper()
+    cat_mapping = {
+        "ROADS": "road_damage",
+        "ROAD_DAMAGE": "road_damage",
+        "POTHOLE": "road_damage",
+        "GARBAGE": "garbage",
+        "WASTE": "garbage",
+        "WATER": "water_leak",
+        "DRINKING_WATER": "water_leak",
+        "WATERLOGGING": "waterlogging",
+        "DRAINAGE": "drainage",
+        "SEWAGE": "drainage",
+        "STREETLIGHT": "street_light",
+        "STREET_LIGHT": "street_light",
+        "SANITATION": "public_sanitation",
+        "PUBLIC_SANITATION": "public_sanitation",
+        "INFRASTRUCTURE": "public_infrastructure",
+        "PUBLIC_INFRASTRUCTURE": "public_infrastructure",
+        "OTHER": "other",
+    }
+    std_cat = cat_mapping.get(raw_cat, "road_damage")
+
+    # 2. Text generation for title & description
+    defect_label = ", ".join(analysis.get("detected_elements", [])) or analysis.get("visual_summary", "Civic defect")
+    text_data = gemini_service.generate_complaint_details(
+        category=std_cat,
+        defect_label=defect_label,
+        village_name=village_name,
+        citizen_notes=None,
+        locale="en",
+    )
+
+    # 3. OCR & text extraction
+    ocr_data = gemini_service.extract_location_clues(img_bytes)
+    ocr_detected = ocr_data.get("detected_text", []) if isinstance(ocr_data, dict) else []
+
+    is_unclear = not analysis.get("is_civic_issue", True) or analysis.get("confidence", 0.0) < 0.4
+    uncertainty_msg = None
+    if is_unclear:
+        uncertainty_msg = "The image quality, lighting, or framing is unclear. Please review and refine the suggested title and category."
+
+    return GeminiProblemAnalysisResponse(
+        is_civic_issue=analysis.get("is_civic_issue", True),
+        suggested_category=std_cat,
+        title=text_data.get("title", f"{std_cat.replace('_', ' ').title()} Issue"),
+        description=text_data.get("description", analysis.get("visual_summary", "")),
+        severity=analysis.get("severity_assessment", "MEDIUM"),
+        visual_summary=analysis.get("visual_summary", "Civic issue requiring inspection"),
+        detected_elements=analysis.get("detected_elements", []),
+        ocr_text=ocr_detected,
+        uncertainty_explanation=uncertainty_msg,
+        confidence=float(analysis.get("confidence", 0.85)),
+        source=analysis.get("source", "gemini-multimodal"),
+    )
+
+class PDOSummaryRequest(BaseModel):
+    category: str
+    village_name: Optional[str] = "Belagavi Taluk"
+    severity: Optional[str] = "MEDIUM"
+    description: Optional[str] = ""
+
+@router.post("/gemini/summarize-pdo")
+def get_gemini_pdo_summary(req: PDOSummaryRequest):
+    return gemini_service.summarize_for_pdo(req.dict())
+
+class TranslateRequest(BaseModel):
+    text: str
+    source_lang: str = "en"
+    target_lang: str = "kn"
+
+@router.post("/gemini/translate")
+def translate_civic_text(req: TranslateRequest):
+    return {
+        "source_lang": req.source_lang,
+        "target_lang": req.target_lang,
+        "original_text": req.text,
+        "translated_text": gemini_service.translate_text(
+            req.text, req.source_lang, req.target_lang
+        ),
+    }
+

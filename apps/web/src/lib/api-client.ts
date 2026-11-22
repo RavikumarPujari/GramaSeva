@@ -19,77 +19,135 @@ export class ApiClient {
   private baseUrl: string;
 
   constructor(baseUrl?: string) {
-    this.baseUrl =
-      baseUrl ||
-      (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_BASE_URL) ||
-      "http://localhost:8000/api/v1";
+    if (baseUrl) {
+      this.baseUrl = baseUrl.replace(/\/+$/, "");
+    } else if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_BASE_URL) {
+      this.baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL.replace(/\/+$/, "");
+    } else if (typeof window !== "undefined") {
+      const host = window.location.hostname;
+      const isLocal = host === "localhost" || host === "127.0.0.1";
+      this.baseUrl = isLocal ? "http://127.0.0.1:8000/api/v1" : "https://gramaseva-0p3u.onrender.com/api/v1";
+    } else {
+      this.baseUrl = "http://127.0.0.1:8000/api/v1";
+    }
+  }
+
+  private getCandidateBaseUrls(): string[] {
+    const list: string[] = [];
+    if (this.baseUrl) {
+      list.push(this.baseUrl);
+    }
+    if (typeof window !== "undefined") {
+      const host = window.location.hostname;
+      const isLocal = host === "localhost" || host === "127.0.0.1";
+      if (isLocal) {
+        if (!list.includes("http://127.0.0.1:8000/api/v1")) list.push("http://127.0.0.1:8000/api/v1");
+        if (!list.includes("http://localhost:8000/api/v1")) list.push("http://localhost:8000/api/v1");
+        if (!list.includes("/api/v1")) list.push("/api/v1");
+      } else {
+        if (!list.includes("/api/v1")) list.push("/api/v1");
+        if (!list.includes("https://gramaseva-0p3u.onrender.com/api/v1")) list.push("https://gramaseva-0p3u.onrender.com/api/v1");
+      }
+    }
+    return list;
   }
 
   private async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
-    const { timeoutMs = 15000, token, headers = {}, ...rest } = options;
-    const url = `${this.baseUrl}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+    const { timeoutMs = 60000, token, headers = {}, ...rest } = options;
+    const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const candidates = this.getCandidateBaseUrls();
+    let lastError: any = null;
 
-    const isFormData = typeof FormData !== "undefined" && rest.body instanceof FormData;
+    for (let i = 0; i < candidates.length; i++) {
+      const candidate = candidates[i];
+      const url = `${candidate}${cleanEndpoint}`;
 
-    const mergedHeaders: Record<string, string> = {
-      ...(isFormData ? {} : { "Content-Type": "application/json" }),
-      Accept: "application/json",
-      ...(headers as Record<string, string>),
-    };
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-    const effectiveToken =
-      token ||
-      (typeof window !== "undefined"
-        ? localStorage.getItem("gramaseva_token") || localStorage.getItem("access_token")
-        : undefined);
+      const isFormData = typeof FormData !== "undefined" && rest.body instanceof FormData;
 
-    if (effectiveToken) {
-      mergedHeaders["Authorization"] = `Bearer ${effectiveToken}`;
-    }
+      const mergedHeaders: Record<string, string> = {
+        ...(isFormData ? {} : { "Content-Type": "application/json" }),
+        Accept: "application/json",
+        ...(headers as Record<string, string>),
+      };
 
-    try {
-      const response = await fetch(url, {
-        ...rest,
-        headers: mergedHeaders,
-        signal: controller.signal,
-      });
+      const effectiveToken =
+        token ||
+        (typeof window !== "undefined"
+          ? localStorage.getItem("gramaseva_token") || localStorage.getItem("access_token")
+          : undefined);
 
-      clearTimeout(timeoutId);
+      if (effectiveToken) {
+        mergedHeaders["Authorization"] = `Bearer ${effectiveToken}`;
+      }
 
-      if (!response.ok) {
-        let errorData: any = null;
-        try {
-          errorData = await response.json();
-        } catch {
-          errorData = await response.text();
+      try {
+        const response = await fetch(url, {
+          ...rest,
+          headers: mergedHeaders,
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        // Remember working endpoint if different from initial
+        if (candidate !== this.baseUrl && !candidate.startsWith("/")) {
+          this.baseUrl = candidate;
         }
 
-        const message =
-          (typeof errorData === "object" && errorData?.detail) ||
-          (typeof errorData === "string" && errorData) ||
-          `Request failed with status ${response.status}`;
+        if (!response.ok) {
+          let errorData: any = null;
+          try {
+            errorData = await response.json();
+          } catch {
+            errorData = await response.text();
+          }
 
-        throw new ApiError(message, response.status, errorData);
-      }
+          const message =
+            (typeof errorData === "object" && errorData?.detail) ||
+            (typeof errorData === "string" && errorData) ||
+            `Request failed with status ${response.status}`;
 
-      if (response.status === 204) {
-        return {} as T;
-      }
+          throw new ApiError(message, response.status, errorData);
+        }
 
-      return (await response.json()) as T;
-    } catch (err: any) {
-      clearTimeout(timeoutId);
-      if (err.name === "AbortError") {
-        throw new ApiError("Request timed out after " + timeoutMs + "ms", 408);
+        if (response.status === 204) {
+          return {} as T;
+        }
+
+        return (await response.json()) as T;
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+        if (err instanceof ApiError) {
+          // Server responded with an error status (e.g. 400, 401, 404), so server was reached!
+          throw err;
+        }
+
+        // Connection/network error
+        lastError = err;
+        if (i < candidates.length - 1) {
+          console.warn(`[ApiClient] Failed to connect to ${candidate}, trying fallback endpoint ${candidates[i + 1]}...`);
+          continue;
+        }
       }
-      if (err instanceof ApiError) {
-        throw err;
-      }
-      throw new ApiError(err.message || "Network error", 0);
     }
+
+    if (lastError?.name === "AbortError") {
+      throw new ApiError(
+        "Request timed out after " + Math.round(timeoutMs / 1000) + "s. Please verify connection and retry.",
+        408
+      );
+    }
+
+    const rawMsg = lastError?.message || "Network error";
+    const userMsg =
+      rawMsg.toLowerCase().includes("failed to fetch") || rawMsg.toLowerCase().includes("networkerror")
+        ? `Could not reach the GramaSeva API server (${this.baseUrl}). Please verify server is running or check your connection.`
+        : rawMsg;
+    throw new ApiError(userMsg, 0);
   }
 
   public get<T>(endpoint: string, options?: RequestOptions): Promise<T> {

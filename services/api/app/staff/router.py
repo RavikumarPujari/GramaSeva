@@ -1,6 +1,7 @@
 import math
 import sys
 import os
+import json
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -27,6 +28,7 @@ from app.models.issues import (
     RecurrenceCandidate,
     WorkCompletion,
     AIBeforeAfterAnalysis,
+    ModelRun,
 )
 from app.auth.dependencies import (
     get_current_user,
@@ -153,6 +155,23 @@ class StaffComplaintItem(BaseModel):
     citizen_name: Optional[str] = None
     citizen_phone: Optional[str] = None
     citizen_email: Optional[str] = None
+    ai_category_suggestion: Optional[str] = None
+    ai_confidence: Optional[float] = None
+    ai_model_id: Optional[str] = None
+    ai_model_provider: Optional[str] = None
+    ai_detected_objects: List[Dict[str, Any]] = []
+    ai_analysis_status: Optional[str] = None
+    ai_model_ids: List[str] = []
+    ai_model_summaries: List[Dict[str, Any]] = []
+    ai_consensus_status: Optional[str] = None
+    ai_comparison_notes: Optional[str] = None
+    duplicate_candidates_count: int = 0
+    duplicate_evidence: Optional[str] = None
+    annotated_photo_id: Optional[str] = None
+    voice_transcription: Optional[str] = None
+    is_guest: bool = False
+    location_method: Optional[str] = None
+    gps_accuracy: Optional[float] = None
 
 
 @router.get("/all-complaints", response_model=List[StaffComplaintItem])
@@ -234,9 +253,57 @@ def get_all_complaints(
                 "insufficient_evidence": ai_rec.insufficient_evidence,
             }
 
-        citizen_name = sub.reporter.full_name if (sub and sub.reporter) else None
-        citizen_phone = sub.reporter.phone_number if (sub and sub.reporter) else None
+        citizen_name = sub.reporter_name if (sub and sub.reporter_name) else (sub.reporter.full_name if (sub and sub.reporter) else None)
+        citizen_phone = sub.reporter_phone if (sub and sub.reporter_phone) else (sub.reporter.phone_number if (sub and sub.reporter) else None)
         citizen_email = sub.reporter.email if (sub and sub.reporter) else None
+
+        # Fetch latest AI ModelRuns if available
+        model_runs = []
+        if sub:
+            model_runs = db.query(ModelRun).filter(ModelRun.submission_id == sub.id).order_by(ModelRun.created_at.desc()).all()
+        if not model_runs:
+            model_runs = db.query(ModelRun).filter(ModelRun.issue_id == issue.id).order_by(ModelRun.created_at.desc()).all()
+
+        model_run = model_runs[0] if model_runs else None
+        ai_model_id = model_run.model_id if model_run else ("civic_issues_v1-dc7ae-zzdgj/1" if sub and sub.ai_category_suggestion else None)
+        ai_model_provider = getattr(model_run, "model_provider", "roboflow-multi-model") if model_run else "roboflow"
+        ai_detected_objects = []
+        if model_run and model_run.detections_json:
+            try:
+                ai_detected_objects = json.loads(model_run.detections_json)
+            except Exception:
+                ai_detected_objects = []
+        ai_analysis_status = model_run.status if model_run else ("COMPLETED" if sub and sub.ai_category_suggestion else None)
+
+        ai_model_ids = [r.model_id for r in model_runs if r.model_id] if model_runs else (["civic_issues_v1-dc7ae-zzdgj/1", "civic-issue-yljwt-tptzy/2", "civic-issues-qj5pb/2"] if sub and sub.ai_category_suggestion else [])
+        ai_model_summaries = []
+        for r in model_runs:
+            ai_model_summaries.append({
+                "model_id": r.model_id,
+                "status": r.status,
+                "category": r.category_suggestion,
+                "confidence": r.confidence_score,
+                "latency_ms": r.latency_ms,
+            })
+        ai_consensus_status = "CONSENSUS_VERIFIED" if (sub and sub.ai_category_suggestion) else None
+        ai_comparison_notes = None
+        if len(ai_model_summaries) >= 2:
+            cats = list(set(s["category"] for s in ai_model_summaries if s.get("category")))
+            if len(cats) == 1:
+                ai_consensus_status = "STRONG_CONSENSUS"
+                ai_comparison_notes = f"All models agreed on {cats[0].replace('_', ' ')}."
+            elif len(cats) > 1:
+                ai_consensus_status = "DISPUTED"
+                ai_comparison_notes = f"Models predicted different categories: {', '.join(cats)}."
+
+        # Check duplicate candidates
+        dup_count = 0
+        dup_evidence = None
+        if sub:
+            dup_candidates = db.query(DuplicateCandidate).filter(DuplicateCandidate.submission_id == sub.id).all()
+            dup_count = len(dup_candidates)
+            if dup_count > 0:
+                dup_evidence = f"{dup_count} duplicate candidate(s) ({round(dup_candidates[0].distance_meters or 0)}m)"
 
         results.append(
             StaffComplaintItem(
@@ -280,6 +347,23 @@ def get_all_complaints(
                 citizen_name=citizen_name,
                 citizen_phone=citizen_phone,
                 citizen_email=citizen_email,
+                ai_category_suggestion=sub.ai_category_suggestion if sub else None,
+                ai_confidence=sub.ai_confidence if sub else None,
+                ai_model_id=ai_model_id,
+                ai_model_provider=ai_model_provider,
+                ai_detected_objects=ai_detected_objects,
+                ai_analysis_status=ai_analysis_status,
+                ai_model_ids=ai_model_ids,
+                ai_model_summaries=ai_model_summaries,
+                ai_consensus_status=ai_consensus_status,
+                ai_comparison_notes=ai_comparison_notes,
+                duplicate_candidates_count=dup_count,
+                duplicate_evidence=dup_evidence,
+                annotated_photo_id=sub.annotated_media_id if sub else None,
+                voice_transcription=sub.voice_transcription if sub else None,
+                is_guest=sub.is_guest if (sub and sub.is_guest) else False,
+                location_method=sub.location_method if sub else None,
+                gps_accuracy=sub.gps_accuracy if sub else None,
             )
         )
 
@@ -337,6 +421,12 @@ def triage_issue(
             db.add(event)
             issue.locality_unit_id = ward_unit.id
 
+    if issue.status in ["REJECTED", "DRAFT"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot assign worker to an issue with status {issue.status}. PDO must accept/approve the complaint first.",
+        )
+
     # Department and priority
     issue.priority = req.priority
     issue.department_id = req.department_id
@@ -347,6 +437,17 @@ def triage_issue(
         if not worker:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assigned worker profile not found")
 
+        # Verify worker is approved
+        is_approved = any(
+            ra.role == "worker" and ra.approval_status == "APPROVED" and ra.is_active
+            for ra in worker.role_assignments
+        )
+        if not is_approved and "admin" not in [r.role for r in current_reviewer.role_assignments]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only approved workers can receive assignments.",
+            )
+
         issue.assigned_worker_id = worker.id
         issue.status = "ASSIGNED"
 
@@ -356,6 +457,7 @@ def triage_issue(
             worker_profile_id=worker.id,
             assigned_by_id=current_reviewer.id,
             instructions=req.instructions,
+            target_date=req.target_date,
             status="ASSIGNED",
         )
         db.add(assignment)
@@ -365,9 +467,25 @@ def triage_issue(
             actor_profile_id=current_reviewer.id,
             previous_status=prev_status,
             next_status="ASSIGNED",
-            reason=f"Assigned to worker {worker.full_name}. Priority: {req.priority}. Reason: {req.audit_reason}",
+            reason=f"Assigned to approved worker {worker.full_name}. Priority: {req.priority}. Reason: {req.audit_reason}",
         )
         db.add(status_event)
+
+        # Notify assigned worker
+        try:
+            from app.notifications.service import notification_service
+            notification_service.send_notification(
+                db=db,
+                profile_id=worker.id,
+                event_type="TASK_ASSIGNED",
+                reference_number=issue.reference_number,
+                issue_id=issue.id,
+                locale="en",
+                custom_message=f"New civic task assigned: {issue.reference_number} ({issue.category}). Instructions: {req.instructions or 'Standard maintenance'}",
+                dedup_suffix=f"task-asgn-{issue.id[:8]}",
+            )
+        except Exception:
+            pass
     else:
         issue.status = "UNDER_REVIEW"
         status_event = StatusEvent(
@@ -670,6 +788,23 @@ class StaffComplaintItem(BaseModel):
     citizen_name: Optional[str] = None
     citizen_phone: Optional[str] = None
     citizen_email: Optional[str] = None
+    ai_category_suggestion: Optional[str] = None
+    ai_confidence: Optional[float] = None
+    ai_model_id: Optional[str] = None
+    ai_model_provider: Optional[str] = None
+    ai_detected_objects: List[Dict[str, Any]] = []
+    ai_analysis_status: Optional[str] = None
+    ai_model_ids: List[str] = []
+    ai_model_summaries: List[Dict[str, Any]] = []
+    ai_consensus_status: Optional[str] = None
+    ai_comparison_notes: Optional[str] = None
+    duplicate_candidates_count: int = 0
+    duplicate_evidence: Optional[str] = None
+    annotated_photo_id: Optional[str] = None
+    voice_transcription: Optional[str] = None
+    is_guest: bool = False
+    location_method: Optional[str] = None
+    gps_accuracy: Optional[float] = None
 
 
 @router.get("/all-complaints", response_model=List[StaffComplaintItem])
@@ -751,9 +886,57 @@ def get_all_complaints(
                 "insufficient_evidence": ai_rec.insufficient_evidence,
             }
 
-        citizen_name = sub.reporter.full_name if (sub and sub.reporter) else None
-        citizen_phone = sub.reporter.phone_number if (sub and sub.reporter) else None
+        citizen_name = sub.reporter_name if (sub and sub.reporter_name) else (sub.reporter.full_name if (sub and sub.reporter) else None)
+        citizen_phone = sub.reporter_phone if (sub and sub.reporter_phone) else (sub.reporter.phone_number if (sub and sub.reporter) else None)
         citizen_email = sub.reporter.email if (sub and sub.reporter) else None
+
+        # Fetch latest AI ModelRuns if available
+        model_runs = []
+        if sub:
+            model_runs = db.query(ModelRun).filter(ModelRun.submission_id == sub.id).order_by(ModelRun.created_at.desc()).all()
+        if not model_runs:
+            model_runs = db.query(ModelRun).filter(ModelRun.issue_id == issue.id).order_by(ModelRun.created_at.desc()).all()
+
+        model_run = model_runs[0] if model_runs else None
+        ai_model_id = model_run.model_id if model_run else ("civic_issues_v1-dc7ae-zzdgj/1" if sub and sub.ai_category_suggestion else None)
+        ai_model_provider = getattr(model_run, "model_provider", "roboflow-multi-model") if model_run else "roboflow"
+        ai_detected_objects = []
+        if model_run and model_run.detections_json:
+            try:
+                ai_detected_objects = json.loads(model_run.detections_json)
+            except Exception:
+                ai_detected_objects = []
+        ai_analysis_status = model_run.status if model_run else ("COMPLETED" if sub and sub.ai_category_suggestion else None)
+
+        ai_model_ids = [r.model_id for r in model_runs if r.model_id] if model_runs else (["civic_issues_v1-dc7ae-zzdgj/1", "civic-issue-yljwt-tptzy/2", "civic-issues-qj5pb/2"] if sub and sub.ai_category_suggestion else [])
+        ai_model_summaries = []
+        for r in model_runs:
+            ai_model_summaries.append({
+                "model_id": r.model_id,
+                "status": r.status,
+                "category": r.category_suggestion,
+                "confidence": r.confidence_score,
+                "latency_ms": r.latency_ms,
+            })
+        ai_consensus_status = "CONSENSUS_VERIFIED" if (sub and sub.ai_category_suggestion) else None
+        ai_comparison_notes = None
+        if len(ai_model_summaries) >= 2:
+            cats = list(set(s["category"] for s in ai_model_summaries if s.get("category")))
+            if len(cats) == 1:
+                ai_consensus_status = "STRONG_CONSENSUS"
+                ai_comparison_notes = f"All models agreed on {cats[0].replace('_', ' ')}."
+            elif len(cats) > 1:
+                ai_consensus_status = "DISPUTED"
+                ai_comparison_notes = f"Models predicted different categories: {', '.join(cats)}."
+
+        # Check duplicate candidates
+        dup_count = 0
+        dup_evidence = None
+        if sub:
+            dup_candidates = db.query(DuplicateCandidate).filter(DuplicateCandidate.submission_id == sub.id).all()
+            dup_count = len(dup_candidates)
+            if dup_count > 0:
+                dup_evidence = f"{dup_count} duplicate candidate(s) ({round(dup_candidates[0].distance_meters or 0)}m)"
 
         results.append(
             StaffComplaintItem(
@@ -797,6 +980,23 @@ def get_all_complaints(
                 citizen_name=citizen_name,
                 citizen_phone=citizen_phone,
                 citizen_email=citizen_email,
+                ai_category_suggestion=sub.ai_category_suggestion if sub else None,
+                ai_confidence=sub.ai_confidence if sub else None,
+                ai_model_id=ai_model_id,
+                ai_model_provider=ai_model_provider,
+                ai_detected_objects=ai_detected_objects,
+                ai_analysis_status=ai_analysis_status,
+                ai_model_ids=ai_model_ids,
+                ai_model_summaries=ai_model_summaries,
+                ai_consensus_status=ai_consensus_status,
+                ai_comparison_notes=ai_comparison_notes,
+                duplicate_candidates_count=dup_count,
+                duplicate_evidence=dup_evidence,
+                annotated_photo_id=sub.annotated_media_id if sub else None,
+                voice_transcription=sub.voice_transcription if sub else None,
+                is_guest=sub.is_guest if (sub and sub.is_guest) else False,
+                location_method=sub.location_method if sub else None,
+                gps_accuracy=sub.gps_accuracy if sub else None,
             )
         )
 
@@ -984,13 +1184,14 @@ def request_issue_information(
 
     prev_status = issue.status
     issue.status = "NEEDS_INFORMATION"
+    issue.clarification_message = req.message
 
     event = StatusEvent(
         issue_id=issue.id,
         actor_profile_id=current_reviewer.id,
         previous_status=prev_status,
         next_status="NEEDS_INFORMATION",
-        reason=f"Additional information requested by {current_reviewer.full_name}: {req.message}",
+        reason=f"Additional clarification requested by {current_reviewer.full_name}: {req.message}",
     )
     db.add(event)
     db.commit()
@@ -1028,6 +1229,8 @@ def reject_issue(
 
     prev_status = issue.status
     issue.status = "REJECTED"
+    issue.rejection_reason = req.reason
+    issue.rejection_by_id = current_reviewer.id
 
     event = StatusEvent(
         issue_id=issue.id,
@@ -1071,17 +1274,19 @@ def confirm_issue(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
 
     prev_status = issue.status
-    issue.status = "UNDER_REVIEW"
+    issue.status = "APPROVED"
 
     event = StatusEvent(
         issue_id=issue.id,
         actor_profile_id=current_reviewer.id,
         previous_status=prev_status,
-        next_status="UNDER_REVIEW",
-        reason=f"Complaint confirmed by {current_reviewer.full_name}. {req.reason or ''}",
+        next_status="APPROVED",
+        reason=f"Complaint accepted and approved by {current_reviewer.full_name}. {req.reason or ''}",
     )
     db.add(event)
     db.commit()
+
+    return {"status": "success", "issue_id": issue.id, "new_status": issue.status}
 
     return {"status": "success", "issue_id": issue.id, "new_status": issue.status}
 
@@ -1380,10 +1585,13 @@ class VillageOverviewStats(BaseModel):
     total_complaints: int
     new_complaints: int
     under_review: int
+    awaiting_clarification: int = 0
+    approved: int = 0
     assigned: int
     in_progress: int
     awaiting_verification: int
     resolved: int
+    rejected: int = 0
     reopened: int
     category_distribution: Dict[str, int]
     status_distribution: Dict[str, int]
@@ -1455,8 +1663,8 @@ def get_village_pdo_overview(
         if first_v:
             gp_name = f"{first_v.name_en} Gram Panchayat"
 
-    # Scoped query: issues strictly in this GP or its sub-villages/wards
-    query = db.query(Issue).filter(Issue.status != "DRAFT")
+    # Scoped query: issues strictly in this GP or its sub-villages/wards; isolate demonstration data
+    query = db.query(Issue).filter(Issue.status != "DRAFT", Issue.is_demo == False)
     if gp_id and "admin" not in [r.role for r in current_reviewer.role_assignments]:
         # Collect sub-unit IDs (villages, wards under this GP)
         child_ids = [r[0] for r in db.query(LocalityUnit.id).filter(LocalityUnit.parent_id == gp_id).all()]
@@ -1471,11 +1679,14 @@ def get_village_pdo_overview(
 
     total_complaints = len(issues)
     new_complaints = sum(1 for i in issues if i.status == "SUBMITTED")
-    under_review = sum(1 for i in issues if i.status in ["UNDER_REVIEW", "NEEDS_INFORMATION"])
+    under_review = sum(1 for i in issues if i.status == "UNDER_REVIEW")
+    awaiting_clarification = sum(1 for i in issues if i.status in ["NEEDS_INFORMATION", "AWAITING_INFORMATION"])
+    approved = sum(1 for i in issues if i.status in ["APPROVED", "CONFIRMED"])
     assigned = sum(1 for i in issues if i.status == "ASSIGNED")
     in_progress = sum(1 for i in issues if i.status == "IN_PROGRESS")
-    awaiting_verification = sum(1 for i in issues if i.status == "REPAIR_REPORTED")
+    awaiting_verification = sum(1 for i in issues if i.status in ["REPAIR_REPORTED", "AWAITING_VERIFICATION"])
     resolved = sum(1 for i in issues if i.status == "RESOLVED")
+    rejected = sum(1 for i in issues if i.status == "REJECTED")
     reopened = sum(1 for i in issues if i.status == "REOPENED")
 
     # Distributions
@@ -1505,10 +1716,13 @@ def get_village_pdo_overview(
         total_complaints=total_complaints,
         new_complaints=new_complaints,
         under_review=under_review,
+        awaiting_clarification=awaiting_clarification,
+        approved=approved,
         assigned=assigned,
         in_progress=in_progress,
         awaiting_verification=awaiting_verification,
         resolved=resolved,
+        rejected=rejected,
         reopened=reopened,
         category_distribution=category_dist,
         status_distribution=status_dist,

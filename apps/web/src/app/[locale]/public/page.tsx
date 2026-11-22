@@ -29,8 +29,27 @@ import {
 } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { LeafletMap, MapComplaint } from "@/components/ui/LeafletMap";
+import { GramaSevaLogo } from "@/components/ui/GramaSevaLogo";
 
-type PublicSection = "overview" | "village_progress" | "map";
+type PublicSection = "overview" | "gallery" | "village_progress" | "map";
+
+interface PublicGalleryItem {
+  id: string;
+  reference_number: string;
+  category: string;
+  title: string;
+  description: string;
+  village_name: string;
+  status: string;
+  is_demo: boolean;
+  sample_badge: string;
+  before_photo_url: string;
+  after_photo_url: string;
+  verified_cost?: number;
+  ai_summary?: string;
+  submitted_at: string;
+  resolved_at?: string;
+}
 
 const BELAGAVI_VILLAGES = [
   "Peeranwadi",
@@ -131,6 +150,8 @@ export default function PublicDashboardPage() {
   const [activeSection, setActiveSection] = useState<PublicSection>("overview");
   const [issues, setIssues] = useState<PublicIssue[]>([]);
   const [analytics, setAnalytics] = useState<PublicAnalytics | null>(null);
+  const [galleryItems, setGalleryItems] = useState<PublicGalleryItem[]>([]);
+  const [galleryCategory, setGalleryCategory] = useState<string>("ALL");
   const [isLoading, setIsLoading] = useState(true);
 
   // Detail Modal State
@@ -159,9 +180,10 @@ export default function PublicDashboardPage() {
 
       const url = `/public/issues${params.toString() ? `?${params.toString()}` : ""}`;
 
-      const [analyticsData, issuesData] = await Promise.allSettled([
+      const [analyticsData, issuesData, galleryData] = await Promise.allSettled([
         apiClient.get<PublicAnalytics>("/public/analytics"),
         apiClient.get<PublicIssue[]>(url),
+        apiClient.get<PublicGalleryItem[]>("/public/gallery"),
       ]);
 
       if (analyticsData.status === "fulfilled" && analyticsData.value) {
@@ -170,6 +192,10 @@ export default function PublicDashboardPage() {
 
       if (issuesData.status === "fulfilled" && issuesData.value) {
         setIssues(issuesData.value);
+      }
+
+      if (galleryData.status === "fulfilled" && galleryData.value) {
+        setGalleryItems(galleryData.value);
       }
     } catch {
       // Handled cleanly
@@ -227,6 +253,7 @@ export default function PublicDashboardPage() {
 
   const navItems = [
     { id: "overview", label: "Overview", icon: LayoutDashboard },
+    { id: "gallery", label: "Before & After Gallery", icon: Camera },
     { id: "village_progress", label: "Village Progress", icon: Building2 },
     { id: "map", label: "Public Map", icon: MapPin },
   ];
@@ -285,11 +312,13 @@ export default function PublicDashboardPage() {
         <div className="max-w-[1440px] mx-auto space-y-4">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <div className="flex items-center gap-2 mb-1.5">
+              <div className="flex items-center gap-3 mb-2">
+                <GramaSevaLogo size="sm" inverted={false} />
+                <span className="h-4 w-px bg-slate-200" />
                 <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold uppercase bg-[#087F78]/10 text-[#087F78] border border-[#087F78]/25">
                   Belagavi Taluk Administration
                 </span>
-                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600">
+                <span className="hidden sm:inline-block px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600">
                   9 Gram Panchayats
                 </span>
               </div>
@@ -672,6 +701,179 @@ export default function PublicDashboardPage() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* SECTION: BEFORE & AFTER VERIFICATION GALLERY (PART 7) */}
+        {activeSection === "gallery" && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            {/* Header & Category Filter */}
+            <div className="bg-white p-6 rounded-3xl border border-[#DCE5EE] shadow-2xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-teal-50 text-[#087F78] text-xs font-bold border border-teal-200">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    Verified Photographic Evidence
+                  </div>
+                  <h2 className="text-xl sm:text-2xl font-black text-[#102B4E] tracking-tight">
+                    Before & After Remediation Gallery
+                  </h2>
+                  <p className="text-xs sm:text-sm text-[#40536B]">
+                    Side-by-side photographic records demonstrating physical civic repairs across Karnataka villages. Demonstration records are clearly marked <span className="font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">DEMO / SAMPLE</span> and isolated from operational counts.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-1.5 rounded-xl bg-teal-50 border border-teal-200 text-[#087F78] font-bold text-xs">
+                    📸 {galleryItems.length} Solved Examples
+                  </span>
+                </div>
+              </div>
+
+              {/* Category Filter Chips */}
+              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                <span className="text-xs font-bold text-slate-500 mr-1">Category:</span>
+                {[
+                  { id: "ALL", label: "All Works" },
+                  { id: "road_damage", label: "Road Potholes" },
+                  { id: "garbage", label: "Garbage & Waste" },
+                  { id: "waterlogging", label: "Waterlogging" },
+                  { id: "street_light", label: "Streetlights" },
+                  { id: "drainage", label: "Drainage" },
+                  { id: "public_sanitation", label: "Public Sanitation" },
+                ].map((cat) => {
+                  const isActive = galleryCategory === cat.id;
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setGalleryCategory(cat.id)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        isActive
+                          ? "bg-[#087F78] text-white shadow-2xs"
+                          : "bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200"
+                      }`}
+                    >
+                      {cat.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Gallery Cards Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {galleryItems
+                .filter((item) => galleryCategory === "ALL" || item.category === galleryCategory)
+                .map((item) => (
+                  <div
+                    key={item.id}
+                    className="bg-white rounded-3xl border border-[#DCE5EE] p-5 sm:p-6 shadow-2xs space-y-4 flex flex-col justify-between hover:shadow-md transition-shadow"
+                  >
+                    <div className="space-y-4">
+                      {/* Top Badges */}
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-teal-50 text-teal-800 border border-teal-200">
+                            {item.category.replace("_", " ")}
+                          </span>
+                          <span className="font-mono text-xs font-black text-slate-600">
+                            {item.reference_number}
+                          </span>
+                        </div>
+
+                        {item.is_demo ? (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-300">
+                            DEMO / SAMPLE RECORD
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-300">
+                            OFFICIAL CITIZEN REPORT
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Title & Location */}
+                      <div>
+                        <h3 className="font-extrabold text-base text-[#102B4E] leading-snug">
+                          {item.title}
+                        </h3>
+                        <p className="text-xs text-slate-500 flex items-center gap-1 mt-1">
+                          <MapPin className="w-3.5 h-3.5 text-rose-500" />
+                          {item.village_name}, Belagavi Taluk
+                        </p>
+                      </div>
+
+                      {/* Side-by-Side Photographic Proof */}
+                      <div className="grid grid-cols-2 gap-3 pt-1">
+                        {/* Before */}
+                        <div className="rounded-2xl border border-rose-200 p-2 bg-rose-50/40 space-y-1.5">
+                          <span className="text-[9px] font-extrabold uppercase tracking-wider text-rose-700 block">
+                            CITIZEN EVIDENCE (BEFORE)
+                          </span>
+                          <div className="aspect-4/3 bg-slate-200 rounded-xl overflow-hidden flex items-center justify-center">
+                            <img
+                              src={item.before_photo_url}
+                              alt="Before Repair"
+                              className="w-full h-full object-cover hover:scale-105 transition-transform"
+                            />
+                          </div>
+                        </div>
+
+                        {/* After */}
+                        <div className="rounded-2xl border border-emerald-200 p-2 bg-emerald-50/40 space-y-1.5">
+                          <span className="text-[9px] font-extrabold uppercase tracking-wider text-emerald-700 block">
+                            VERIFIED REPAIR (AFTER)
+                          </span>
+                          <div className="aspect-4/3 bg-slate-200 rounded-xl overflow-hidden flex items-center justify-center">
+                            <img
+                              src={item.after_photo_url}
+                              alt="After Repair"
+                              className="w-full h-full object-cover hover:scale-105 transition-transform"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Description & AI Summary */}
+                      <div className="space-y-2 text-xs">
+                        <p className="text-slate-600 text-xs leading-relaxed">
+                          {item.description}
+                        </p>
+
+                        {item.ai_summary && (
+                          <div className="rounded-xl border border-teal-200 bg-teal-50/50 p-2.5 flex items-start gap-2">
+                            <Sparkles className="w-4 h-4 text-[#087F78] shrink-0 mt-0.5" />
+                            <p className="text-[11px] text-teal-900 leading-snug">
+                              <strong className="font-bold">AI Advisory Summary:</strong> {item.ai_summary}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Card Footer: Cost & Lifecycle Link */}
+                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                      <div>
+                        {typeof item.verified_cost === "number" ? (
+                          <span className="text-slate-700">
+                            Verified Cost: <strong className="text-emerald-700 font-bold">₹{item.verified_cost.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</strong>
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">Routine Maintenance</span>
+                        )}
+                      </div>
+
+                      <Link
+                        href={`/${locale}/track/${item.reference_number}`}
+                        className="font-bold text-[#087F78] hover:underline flex items-center gap-1"
+                      >
+                        Track Milestone Audit →
+                      </Link>
+                    </div>
+                  </div>
+                ))}
             </div>
           </div>
         )}

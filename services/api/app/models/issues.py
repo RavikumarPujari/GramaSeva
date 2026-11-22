@@ -59,6 +59,18 @@ class Issue(Base, TimestampMixin):
     escalated_at = Column(DateTime, nullable=True)
     escalation_reason = Column(Text, nullable=True)
 
+    # Advanced Dual-Source Location & Jurisdiction Status (Part 15)
+    jurisdiction_status = Column(String(50), default="VERIFIED", nullable=True)
+    has_location_conflict = Column(Boolean, default=False, nullable=False)
+    location_conflict_details = Column(Text, nullable=True)
+
+    # Workflow Governance, Clarification, Rejection & Demonstration Flags (Part 1-8)
+    is_demo = Column(Boolean, default=False, nullable=False, index=True)
+    clarification_message = Column(Text, nullable=True)
+    clarification_response = Column(Text, nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+    rejection_by_id = Column(String(36), ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True)
+
     locality_unit = relationship("LocalityUnit", back_populates="issues")
     department = relationship("Department")
     assigned_worker = relationship("Profile", foreign_keys=[assigned_worker_id])
@@ -89,10 +101,50 @@ class Submission(Base, TimestampMixin):
     locality_unit_id = Column(String(36), ForeignKey("locality_units.id", ondelete="SET NULL"), nullable=True)
     village_name = Column(String(255), nullable=True)
     ward_name = Column(String(255), nullable=True)
+    taluk_name = Column(String(100), default="Belagavi Taluk", nullable=True)
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
     is_anonymous = Column(Boolean, default=False, nullable=False)
     public_display_consent = Column(Boolean, default=False, nullable=False)
+
+    # Simplified 5-stage citizen details and AI metadata
+    reporter_name = Column(String(255), nullable=True)
+    reporter_phone = Column(String(50), nullable=True)
+    is_guest = Column(Boolean, default=False, nullable=False)
+    location_method = Column(String(50), default="GPS_VERIFIED", nullable=False)
+    gps_accuracy = Column(Float, nullable=True)
+    gps_timestamp = Column(DateTime, nullable=True)
+    voice_transcription = Column(Text, nullable=True)
+    annotated_media_id = Column(String(36), nullable=True)
+    ai_category_suggestion = Column(String(50), nullable=True)
+    ai_confidence = Column(Float, nullable=True)
+
+    # Advanced Photo Location, OCR, Landmark & Confirmed Coordinates (Part 15)
+    ocr_extracted_text = Column(Text, nullable=True)
+    ocr_detections_json = Column(Text, nullable=True)
+    landmark_candidates_json = Column(Text, nullable=True)
+    photo_location_status = Column(String(50), default="NOT_EVALUATED", nullable=True)
+    photo_location_provider = Column(String(100), nullable=True)
+    confirmed_latitude = Column(Float, nullable=True)
+    confirmed_longitude = Column(Float, nullable=True)
+    confirmed_village = Column(String(255), nullable=True)
+    confirmed_address = Column(Text, nullable=True)
+    confirmation_method = Column(String(50), default="CITIZEN_CONFIRMED", nullable=True)
+    jurisdiction_status = Column(String(50), default="VERIFIED", nullable=True)
+    location_conflict_flag = Column(Boolean, default=False, nullable=False)
+    location_conflict_details = Column(Text, nullable=True)
+
+    # Google Geocoding & Real Location Persistence (Migration 010)
+    detected_village = Column(String(255), nullable=True)
+    detected_taluk = Column(String(100), nullable=True)
+    detected_district = Column(String(100), nullable=True)
+    detected_state = Column(String(100), nullable=True)
+    detected_country = Column(String(100), default="India", nullable=True)
+    detected_postal_code = Column(String(20), nullable=True)
+    google_place_id = Column(String(255), nullable=True)
+    geocoding_status = Column(String(50), nullable=True)
+    location_confirmation_status = Column(String(50), default="UNCONFIRMED", nullable=True)
+    is_demo = Column(Boolean, default=False, nullable=False, index=True)
 
     reporter = relationship("Profile", back_populates="submissions")
     issue = relationship("Issue", back_populates="submissions")
@@ -146,6 +198,7 @@ class Assignment(Base, TimestampMixin):
     # Status: ASSIGNED, ACCEPTED, DECLINED, IN_PROGRESS, COMPLETED
     status = Column(String(50), default="ASSIGNED", nullable=False)
     instructions = Column(Text, nullable=True)
+    target_date = Column(DateTime, nullable=True)
     decline_reason = Column(Text, nullable=True)
 
     issue = relationship("Issue", back_populates="assignments")
@@ -250,6 +303,7 @@ class ModelRun(Base, TimestampMixin):
     submission_id = Column(String(36), ForeignKey("submissions.id", ondelete="CASCADE"), nullable=True, index=True)
 
     model_id = Column(String(100), nullable=False, index=True)
+    model_provider = Column(String(50), default="roboflow", nullable=True)
     model_revision = Column(String(64), nullable=False)
     task = Column(String(50), nullable=False)
     # Status: COMPLETED, FAILED, UNAVAILABLE, NO_DETECTIONS
@@ -260,6 +314,9 @@ class ModelRun(Base, TimestampMixin):
     latency_ms = Column(Integer, default=0, nullable=False)
     requires_human_review = Column(Boolean, default=True, nullable=False)
     limitations_json = Column(Text, nullable=True)
+    citizen_confirmed_category = Column(String(50), nullable=True)
+    error_info = Column(Text, nullable=True)
+    duplicate_candidates_json = Column(Text, nullable=True)
 
     # Human review / confirmation
     confirmed_by_profile_id = Column(String(36), ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True)
@@ -377,5 +434,23 @@ class AIBeforeAfterAnalysis(Base, TimestampMixin):
     issue = relationship("Issue", back_populates="ai_analyses")
     before_media_asset = relationship("MediaAsset", foreign_keys=[before_media_asset_id])
     after_media_asset = relationship("MediaAsset", foreign_keys=[after_media_asset_id])
+
+class LocationAuditLog(Base, TimestampMixin):
+    """Immutable audit trail for all location and jurisdiction modifications (Part 15 & 16)."""
+    __tablename__ = "location_audit_logs"
+
+    submission_id = Column(String(36), ForeignKey("submissions.id", ondelete="CASCADE"), nullable=True, index=True)
+    issue_id = Column(String(36), ForeignKey("issues.id", ondelete="CASCADE"), nullable=True, index=True)
+    actor_id = Column(String(36), ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True, index=True)
+    actor_role = Column(String(50), default="citizen", nullable=False)
+    field_changed = Column(String(100), nullable=False)  # "coordinates", "village", "jurisdiction_status"
+    old_value = Column(Text, nullable=True)
+    new_value = Column(Text, nullable=True)
+    reason = Column(Text, nullable=True)
+
+    submission = relationship("Submission")
+    issue = relationship("Issue")
+    actor = relationship("Profile")
+
 
 
