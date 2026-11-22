@@ -1123,8 +1123,7 @@ export default function ReportProblemPage() {
                     return;
                   }
                   if (!isLocationConfirmed) {
-                    setErrorMessage("Please confirm the detected location by clicking 'Confirm Location'.");
-                    return;
+                    setIsLocationConfirmed(true);
                   }
                   setErrorMessage(null);
                   setCurrentStep(3);
@@ -1132,7 +1131,7 @@ export default function ReportProblemPage() {
                     triggerGeminiAnalysis(selectedFile, selectedLanguage);
                   }
                 }}
-                disabled={!selectedFile || !locationData || !locationData.lat || !isLocationConfirmed}
+                disabled={!selectedFile || !locationData || !locationData.lat}
                 className="bg-[#087F78] hover:bg-[#06635e] text-white font-bold px-6 text-xs transition-all disabled:opacity-50 cursor-pointer"
               >
                 <span>Continue to AI Category Analysis</span>
