@@ -19,10 +19,15 @@ export class ApiClient {
   private baseUrl: string;
 
   constructor(baseUrl?: string) {
+    const envUrl =
+      typeof process !== "undefined"
+        ? process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL
+        : undefined;
+
     if (baseUrl) {
       this.baseUrl = baseUrl.replace(/\/+$/, "");
-    } else if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_BASE_URL) {
-      this.baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL.replace(/\/+$/, "");
+    } else if (envUrl) {
+      this.baseUrl = envUrl.replace(/\/+$/, "");
     } else if (typeof window !== "undefined") {
       const host = window.location.hostname;
       const isLocal = host === "localhost" || host === "127.0.0.1";
@@ -30,6 +35,10 @@ export class ApiClient {
     } else {
       this.baseUrl = "http://127.0.0.1:8000/api/v1";
     }
+  }
+
+  public getBaseUrl(): string {
+    return this.baseUrl;
   }
 
   private getCandidateBaseUrls(): string[] {
@@ -45,15 +54,15 @@ export class ApiClient {
         if (!list.includes("http://localhost:8000/api/v1")) list.push("http://localhost:8000/api/v1");
         if (!list.includes("/api/v1")) list.push("/api/v1");
       } else {
-        if (!list.includes("/api/v1")) list.push("/api/v1");
         if (!list.includes("https://gramaseva-0p3u.onrender.com/api/v1")) list.push("https://gramaseva-0p3u.onrender.com/api/v1");
+        if (!list.includes("/api/v1")) list.push("/api/v1");
       }
     }
     return list;
   }
 
   private async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
-    const { timeoutMs = 15000, token, headers = {}, ...rest } = options;
+    const { timeoutMs = 25000, token, headers = {}, ...rest } = options;
     const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
 
     const candidates = this.getCandidateBaseUrls();
@@ -201,3 +210,27 @@ export class ApiClient {
 }
 
 export const apiClient = new ApiClient();
+
+export function getMediaUrl(mediaPathOrId?: string): string {
+  if (!mediaPathOrId) return "";
+  if (mediaPathOrId.startsWith("http://") || mediaPathOrId.startsWith("https://")) {
+    return mediaPathOrId;
+  }
+  const clean = mediaPathOrId.startsWith("/") ? mediaPathOrId : `/${mediaPathOrId}`;
+  const fullPath = clean.startsWith("/api/v1") ? clean : `/api/v1/public/media/${clean.replace(/^\//, "")}/view`;
+
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    const isLocal = host === "localhost" || host === "127.0.0.1";
+    if (isLocal) {
+      return `http://127.0.0.1:8000${fullPath}`;
+    }
+    const envApi = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL;
+    if (envApi) {
+      const baseHost = envApi.replace(/\/api\/v1\/?$/, "").replace(/\/+$/, "");
+      return `${baseHost}${fullPath}`;
+    }
+    return `https://gramaseva-0p3u.onrender.com${fullPath}`;
+  }
+  return fullPath;
+}

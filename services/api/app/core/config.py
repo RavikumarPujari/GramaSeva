@@ -4,6 +4,12 @@ from typing import Optional
 
 def _resolve_database_url() -> str:
     url = os.getenv("DATABASE_URL", "sqlite:///./fixproof_dev.db")
+    # Normalize postgres / postgresql schemes to SQLAlchemy psycopg 3 format
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+psycopg://", 1)
+    elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
+        url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+
     # If Render internal PostgreSQL host is supplied outside Render, auto-map to external host
     if "dpg-" in url and ".render.com" not in url and not os.getenv("RENDER"):
         import re

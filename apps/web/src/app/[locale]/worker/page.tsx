@@ -38,7 +38,7 @@ import {
   CheckCircle,
   AlertCircle,
 } from "lucide-react";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, getMediaUrl } from "@/lib/api-client";
 import { LeafletMap, MapComplaint } from "@/components/ui/LeafletMap";
 import { GramaSevaLogo } from "@/components/ui/GramaSevaLogo";
 
@@ -1504,7 +1504,7 @@ export default function WorkerDashboard() {
                       {completionTask.citizen_photo_ids.map((id) => (
                         <img
                           key={id}
-                          src={`http://localhost:8000/api/v1/public/media/${id}/view`}
+                          src={getMediaUrl(id)}
                           alt="Citizen Before Evidence"
                           className="w-28 h-20 object-cover rounded-xl border border-slate-300"
                           onError={(e) => {
@@ -1554,7 +1554,7 @@ export default function WorkerDashboard() {
                         completionTask.worker_after_photo_ids.map((id) => (
                           <img
                             key={id}
-                            src={`http://localhost:8000/api/v1/public/media/${id}/view`}
+                            src={getMediaUrl(id)}
                             alt="Existing Uploaded After Photo"
                             className="w-16 h-16 object-cover rounded-xl border border-slate-300"
                             onError={(e) => {

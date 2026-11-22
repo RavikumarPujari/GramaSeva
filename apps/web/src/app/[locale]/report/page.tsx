@@ -623,40 +623,46 @@ export default function ReportProblemPage() {
         submitForm.append("linked_duplicate_reference", selectedDuplicateRef);
       }
 
-      // Submit atomically to backend API
+      // Submit atomically to backend API with 35s timeout to support Render cold starts
       let res: any = null;
       try {
-        res = await apiClient.postForm<any>("/reports/submit", submitForm);
+        res = await apiClient.postForm<any>("/reports/submit", submitForm, { timeoutMs: 35000 });
       } catch (postErr: any) {
-        console.warn("[handleSubmitComplaint] apiClient call failed, trying direct local endpoint:", postErr);
+        console.warn("[handleSubmitComplaint] apiClient call failed, trying direct endpoint:", postErr);
+        const host = typeof window !== "undefined" ? window.location.hostname : "";
+        const isLocal = host === "localhost" || host === "127.0.0.1";
+        const fallbackBase = isLocal
+          ? "http://127.0.0.1:8000/api/v1/reports/submit"
+          : "https://gramaseva-0p3u.onrender.com/api/v1/reports/submit";
+
         try {
-          const directResp = await fetch("http://127.0.0.1:8000/api/v1/reports/submit", {
+          const directResp = await fetch(fallbackBase, {
             method: "POST",
             body: submitForm,
           });
           if (directResp.ok) {
             res = await directResp.json();
           } else {
-            throw postErr;
+            const errJson = await directResp.json().catch(() => null);
+            throw new Error(errJson?.detail || errJson?.message || `Server returned error ${directResp.status}`);
           }
-        } catch {
-          throw postErr;
+        } catch (fbErr: any) {
+          throw new Error(fbErr?.message || postErr?.message || "Failed to submit complaint to the server.");
         }
       }
 
       if (res && (res.tracking_id || res.id)) {
-        const tid = res.tracking_id || `GS-2026-${Math.floor(10000 + Math.random() * 90000)}`;
+        const tid = (res.tracking_id || res.reference_number || res.id).trim();
         setTrackingId(tid);
         window.scrollTo({ top: 0, behavior: "smooth" });
       } else {
         throw new Error("Complaint submission response did not contain a valid tracking ID.");
       }
     } catch (err: any) {
-      console.warn("[handleSubmitComplaint] Backend submission note:", err);
-      // Generate instant verified tracking ID so citizen workflow is NEVER broken or frozen
-      const generatedRef = `GS-2026-BEL-${Math.floor(10000 + Math.random() * 90000)}`;
-      setTrackingId(generatedRef);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      console.error("[handleSubmitComplaint] Submission error:", err);
+      setErrorMessage(
+        err?.message || "Failed to register complaint in the database. Please verify your connection and try again."
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -664,7 +670,8 @@ export default function ReportProblemPage() {
 
   const copyTrackingId = () => {
     if (trackingId) {
-      navigator.clipboard.writeText(trackingId);
+      const cleanId = trackingId.trim();
+      navigator.clipboard.writeText(cleanId);
       setCopiedId(true);
       setTimeout(() => setCopiedId(false), 2000);
     }

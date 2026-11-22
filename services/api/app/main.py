@@ -71,6 +71,16 @@ app.include_router(admin_router, prefix="/api/v1")
 app.include_router(citizen_router, prefix="/api/v1")
 
 
+@app.on_event("startup")
+def on_startup():
+    from app.core.database import Base, engine
+    import app.models  # noqa: F401
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as e:
+        print("[Startup] Schema verification notice:", e)
+
+
 @app.get("/")
 def root():
     return {

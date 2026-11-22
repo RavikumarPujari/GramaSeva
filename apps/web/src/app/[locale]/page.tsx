@@ -35,10 +35,17 @@ interface HomePageProps {
 
 async function getHeroStats() {
   try {
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const rawApi =
+      process.env.API_BASE_URL ||
+      process.env.NEXT_PUBLIC_API_URL ||
+      process.env.NEXT_PUBLIC_API_BASE_URL ||
+      (process.env.NODE_ENV === "production"
+        ? "https://gramaseva-0p3u.onrender.com"
+        : "http://127.0.0.1:8000");
+    const apiBase = rawApi.replace(/\/api\/v1\/?$/, "").replace(/\/+$/, "");
     const res = await fetch(`${apiBase}/api/v1/public/analytics`, {
       next: { revalidate: 10 },
-      signal: AbortSignal.timeout(2500),
+      signal: AbortSignal.timeout(5000),
     });
     if (res.ok) {
       const data = await res.json();

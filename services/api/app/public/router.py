@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from app.core.database import get_db
 from app.models.issues import Issue, Submission, MediaAsset, StatusEvent, AIBeforeAfterAnalysis
 from app.models.localities import LocalityUnit, Department
@@ -369,21 +369,46 @@ def get_public_issue_detail(
     Strictly masks citizen phone numbers, emails, and exact home pins.
     Supports lookup by issue UUID, tracking ID (GS-2026-BEL-XXXX), or reference number.
     """
+    clean_id = (issue_id or "").strip()
+    if not clean_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tracking ID or Reference Number is required",
+        )
+
+    clean_upper = clean_id.upper()
     issue = (
         db.query(Issue)
         .filter(
-            (Issue.id == issue_id) | (Issue.reference_number == issue_id),
+            or_(
+                Issue.id == clean_id,
+                func.upper(Issue.reference_number) == clean_upper,
+                Issue.reference_number == clean_id,
+            ),
             Issue.status != "DRAFT",
         )
         .first()
     )
     if not issue:
-        sub = db.query(Submission).filter(Submission.tracking_id == issue_id).first()
+        sub = (
+            db.query(Submission)
+            .filter(
+                or_(
+                    func.upper(Submission.tracking_id) == clean_upper,
+                    Submission.tracking_id == clean_id,
+                    Submission.id == clean_id,
+                )
+            )
+            .first()
+        )
         if sub and sub.issue_id:
             issue = db.query(Issue).filter(Issue.id == sub.issue_id, Issue.status != "DRAFT").first()
 
     if not issue:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Complaint with Tracking ID '{clean_id}' could not be found.",
+        )
 
     loc = issue.locality_unit
     v_name = None

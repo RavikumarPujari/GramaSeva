@@ -27,7 +27,7 @@ import {
   X,
   ExternalLink,
 } from "lucide-react";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, getMediaUrl as resolveMediaUrl } from "@/lib/api-client";
 import { LeafletMap, MapComplaint } from "@/components/ui/LeafletMap";
 import { GramaSevaLogo } from "@/components/ui/GramaSevaLogo";
 
@@ -64,11 +64,7 @@ const BELAGAVI_VILLAGES = [
 ];
 
 const getMediaUrl = (url?: string) => {
-  if (!url) return "";
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
-  const origin = base.replace(/\/api\/v1\/?$/, "");
-  return url.startsWith("/") ? `${origin}${url}` : `${base}/public/media/${url}/view`;
+  return resolveMediaUrl(url);
 };
 
 interface PublicMediaItem {

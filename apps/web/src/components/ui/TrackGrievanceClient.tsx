@@ -19,7 +19,7 @@ import {
   FileText,
   Star,
 } from "lucide-react";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, getMediaUrl, ApiError } from "@/lib/api-client";
 
 interface TimelineItem {
   status: string;
@@ -73,19 +73,6 @@ const LIFECYCLE_STEPS = [
   { key: "FEEDBACK", label: "Citizen Feedback", icon: "⭐" },
 ];
 
-function getMediaUrl(url?: string): string {
-  if (!url) return "";
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  const clean = url.startsWith("/") ? url : `/${url}`;
-  if (typeof window !== "undefined") {
-    const host = window.location.hostname;
-    if (host === "localhost" || host === "127.0.0.1") {
-      return `http://127.0.0.1:8000${clean}`;
-    }
-  }
-  return clean;
-}
-
 export function TrackGrievanceClient({
   locale,
   initialId = "",
@@ -115,19 +102,27 @@ export function TrackGrievanceClient({
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
 
   const fetchTracking = async (trackingRef: string) => {
-    if (!trackingRef.trim()) return;
+    const cleanRef = trackingRef.trim();
+    if (!cleanRef) {
+      setError("Please enter a valid Tracking ID to search.");
+      return;
+    }
     setLoading(true);
     setError(null);
 
-    const cleanRef = trackingRef.trim();
     try {
-      const res = await apiClient.get<TrackedIssue>(`/public/track/${encodeURIComponent(cleanRef)}`);
+      // 1. Try public track endpoint with 35s timeout to handle cloud cold-starts
+      const res = await apiClient.get<TrackedIssue>(
+        `/public/track/${encodeURIComponent(cleanRef)}`,
+        { timeoutMs: 35000 }
+      );
       setData(res);
       setActiveTrackingId(cleanRef);
       if (res && res.status === "RESOLVED") {
         try {
           const fb = await apiClient.get<{ has_feedback: boolean; rating?: number; comment?: string }>(
-            `/reports/${encodeURIComponent(cleanRef)}/feedback`
+            `/reports/${encodeURIComponent(cleanRef)}/feedback`,
+            { timeoutMs: 10000 }
           );
           if (fb?.has_feedback) {
             setFeedbackSubmitted(true);
@@ -135,19 +130,23 @@ export function TrackGrievanceClient({
             if (fb.comment) setFeedbackComment(fb.comment);
           }
         } catch {
-          // ignore error if feedback not checked
+          // ignore
         }
       }
-    } catch {
+    } catch (primaryErr: any) {
+      // 2. Try fallback endpoint
       try {
-        // Fallback to /public/issues/{cleanRef}
-        const fallbackRes = await apiClient.get<TrackedIssue>(`/public/issues/${encodeURIComponent(cleanRef)}`);
+        const fallbackRes = await apiClient.get<TrackedIssue>(
+          `/public/issues/${encodeURIComponent(cleanRef)}`,
+          { timeoutMs: 25000 }
+        );
         setData(fallbackRes);
         setActiveTrackingId(cleanRef);
         if (fallbackRes && fallbackRes.status === "RESOLVED") {
           try {
             const fb = await apiClient.get<{ has_feedback: boolean; rating?: number; comment?: string }>(
-              `/reports/${encodeURIComponent(cleanRef)}/feedback`
+              `/reports/${encodeURIComponent(cleanRef)}/feedback`,
+              { timeoutMs: 10000 }
             );
             if (fb?.has_feedback) {
               setFeedbackSubmitted(true);
@@ -158,9 +157,21 @@ export function TrackGrievanceClient({
             // ignore
           }
         }
-      } catch (err: any) {
-        setError(`Complaint '${cleanRef}' could not be found. Please check your Tracking ID and try again.`);
+      } catch (fallbackErr: any) {
         setData(null);
+        const effectiveErr = fallbackErr instanceof ApiError ? fallbackErr : primaryErr;
+        const statusCode = effectiveErr?.status;
+        const msg = effectiveErr?.message || "";
+
+        if (statusCode === 404) {
+          setError(`Complaint '${cleanRef}' could not be found. Please check your Tracking ID and try again.`);
+        } else if (statusCode === 408 || msg.toLowerCase().includes("timed out")) {
+          setError("The server took longer than expected to respond (backend cold start). Please click Track Now to retry.");
+        } else if (statusCode >= 500) {
+          setError(`The server encountered a temporary error (HTTP ${statusCode}). Please retry in a few moments.`);
+        } else {
+          setError(`Unable to connect to the tracking server. Please check your network connection and retry.`);
+        }
       }
     } finally {
       setLoading(false);
@@ -194,14 +205,16 @@ export function TrackGrievanceClient({
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (searchInput.trim()) {
-      fetchTracking(searchInput);
+    const clean = searchInput.trim();
+    if (clean) {
+      fetchTracking(clean);
     }
   };
 
   const handleCopy = () => {
     if (typeof window !== "undefined" && data) {
-      navigator.clipboard.writeText(data.reference_number);
+      const cleanRef = (data.reference_number || "").trim();
+      navigator.clipboard.writeText(cleanRef);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }

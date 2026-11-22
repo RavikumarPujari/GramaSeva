@@ -6,7 +6,14 @@ const withNextIntl = createNextIntlPlugin('./src/i18n.ts');
 const nextConfig = {
   reactStrictMode: true,
   async rewrites() {
-    const targetApi = (process.env.API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '');
+    const rawTarget =
+      process.env.API_BASE_URL ||
+      process.env.NEXT_PUBLIC_API_URL ||
+      process.env.NEXT_PUBLIC_API_BASE_URL ||
+      (process.env.NODE_ENV === 'production'
+        ? 'https://gramaseva-0p3u.onrender.com'
+        : 'http://127.0.0.1:8000');
+    const targetApi = rawTarget.replace(/\/api\/v1\/?$/, '').replace(/\/+$/, '');
     return [
       {
         source: '/api/v1/:path*',

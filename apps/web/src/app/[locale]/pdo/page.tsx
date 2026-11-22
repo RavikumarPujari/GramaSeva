@@ -46,7 +46,7 @@ import {
   User,
   Mic,
 } from "lucide-react";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, getMediaUrl as resolveMediaUrl } from "@/lib/api-client";
 import { PdoGoogleMap, PdoMapComplaint } from "@/components/ui/PdoGoogleMap";
 import { LanguageSelector } from "@/components/ui/LanguageSelector";
 import { GramaSevaLogo } from "@/components/ui/GramaSevaLogo";
@@ -506,15 +506,7 @@ export default function VillagePdoDashboard() {
   };
 
   const getMediaUrl = (mediaIdOrPath?: string) => {
-    if (!mediaIdOrPath) return "";
-    if (mediaIdOrPath.startsWith("http://") || mediaIdOrPath.startsWith("https://")) {
-      return mediaIdOrPath;
-    }
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
-    if (mediaIdOrPath.startsWith("/")) {
-      return `${apiBase.replace(/\/api\/v1\/?$/, "")}${mediaIdOrPath}`;
-    }
-    return `${apiBase}/public/media/${mediaIdOrPath}/view`;
+    return resolveMediaUrl(mediaIdOrPath);
   };
 
   // Direct PDO Accept Action for New Complaints
