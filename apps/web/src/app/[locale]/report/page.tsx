@@ -628,26 +628,35 @@ export default function ReportProblemPage() {
       try {
         res = await apiClient.postForm<any>("/reports/submit", submitForm, { timeoutMs: 35000 });
       } catch (postErr: any) {
-        console.warn("[handleSubmitComplaint] apiClient call failed, trying direct endpoint:", postErr);
+        console.warn("[handleSubmitComplaint] apiClient call failed, trying fallback endpoints:", postErr);
         const host = typeof window !== "undefined" ? window.location.hostname : "";
         const isLocal = host === "localhost" || host === "127.0.0.1";
-        const fallbackBase = isLocal
-          ? "http://127.0.0.1:8000/api/v1/reports/submit"
-          : "https://gramaseva-0p3u.onrender.com/api/v1/reports/submit";
+        const fallbackCandidates = isLocal
+          ? ["http://127.0.0.1:8000/api/v1/reports/submit", "/api/v1/reports/submit"]
+          : ["/api/v1/reports/submit", "https://gramaseva-0p3u.onrender.com/api/v1/reports/submit"];
 
-        try {
-          const directResp = await fetch(fallbackBase, {
-            method: "POST",
-            body: submitForm,
-          });
-          if (directResp.ok) {
-            res = await directResp.json();
-          } else {
-            const errJson = await directResp.json().catch(() => null);
-            throw new Error(errJson?.detail || errJson?.message || `Server returned error ${directResp.status}`);
+        let fallbackSuccess = false;
+        let lastFbErr: any = null;
+        for (const fbUrl of fallbackCandidates) {
+          try {
+            const directResp = await fetch(fbUrl, {
+              method: "POST",
+              body: submitForm,
+            });
+            if (directResp.ok) {
+              res = await directResp.json();
+              fallbackSuccess = true;
+              break;
+            } else {
+              const errJson = await directResp.json().catch(() => null);
+              lastFbErr = new Error(errJson?.detail || errJson?.message || `Server returned error ${directResp.status}`);
+            }
+          } catch (e: any) {
+            lastFbErr = e;
           }
-        } catch (fbErr: any) {
-          throw new Error(fbErr?.message || postErr?.message || "Failed to submit complaint to the server.");
+        }
+        if (!fallbackSuccess) {
+          throw new Error(lastFbErr?.message || postErr?.message || "Failed to submit complaint to the server.");
         }
       }
 

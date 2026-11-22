@@ -1,9 +1,11 @@
 import os
+import re
+from typing import Optional, Any
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
-from typing import Optional
 
-def _resolve_database_url() -> str:
-    url = os.getenv("DATABASE_URL", "sqlite:///./fixproof_dev.db")
+def normalize_db_url(v: Any) -> str:
+    url = str(v).strip() if v else "sqlite:///./fixproof_dev.db"
     # Normalize postgres / postgresql schemes to SQLAlchemy psycopg 3 format
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql+psycopg://", 1)
@@ -12,7 +14,6 @@ def _resolve_database_url() -> str:
 
     # If Render internal PostgreSQL host is supplied outside Render, auto-map to external host
     if "dpg-" in url and ".render.com" not in url and not os.getenv("RENDER"):
-        import re
         url = re.sub(r"@dpg-([a-zA-Z0-9]+)-a/", r"@dpg-\1-a.oregon-postgres.render.com/", url)
     return url
 
@@ -22,7 +23,12 @@ class Settings(BaseSettings):
     api_base_url: str = os.getenv("API_BASE_URL", "http://localhost:8000/api/v1")
     
     # Database: Supports SQLite (for dev/testing) or PostgreSQL/PostGIS
-    database_url: str = _resolve_database_url()
+    database_url: str = normalize_db_url(os.getenv("DATABASE_URL", "sqlite:///./fixproof_dev.db"))
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def validate_database_url(cls, v: Any) -> str:
+        return normalize_db_url(v)
     
     # JWT Authentication
     jwt_secret_key: str = os.getenv("JWT_SECRET_KEY", "fixproof-civic-pilot-super-secret-key-32bytes-minimum")

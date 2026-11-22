@@ -6,7 +6,13 @@ from app.core.config import settings
 connect_args = {}
 engine_kwargs = {"echo": False, "future": True}
 
-if settings.database_url.startswith("sqlite"):
+raw_db_url = settings.database_url
+if raw_db_url.startswith("postgres://"):
+    raw_db_url = raw_db_url.replace("postgres://", "postgresql+psycopg://", 1)
+elif raw_db_url.startswith("postgresql://") and not raw_db_url.startswith("postgresql+"):
+    raw_db_url = raw_db_url.replace("postgresql://", "postgresql+psycopg://", 1)
+
+if raw_db_url.startswith("sqlite"):
     connect_args["check_same_thread"] = False
 else:
     engine_kwargs["pool_pre_ping"] = True
@@ -15,7 +21,7 @@ else:
     engine_kwargs["max_overflow"] = 20
 
 engine = create_engine(
-    settings.database_url,
+    raw_db_url,
     connect_args=connect_args,
     **engine_kwargs,
 )

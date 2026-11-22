@@ -28,6 +28,7 @@ import {
   RefreshCw,
   Eye,
   Check,
+  Copy,
   FileText,
   X,
   UploadCloud,
@@ -960,6 +961,18 @@ export default function CitizenDashboard() {
                           <div className="space-y-1">
                             <div className="flex items-center gap-2">
                               <span className="font-mono font-bold text-[#102B4E]">{c.tracking_id}</span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigator.clipboard.writeText(c.tracking_id.trim());
+                                  setNotice(`Copied Tracking ID: ${c.tracking_id}`);
+                                }}
+                                className="p-1 text-slate-400 hover:text-[#087F78] transition-colors rounded hover:bg-slate-100"
+                                title="Copy Tracking ID"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
                               <span className="font-semibold text-[#087F78] capitalize">
                                 {c.category.replace("_", " ")}
                               </span>
@@ -1376,6 +1389,18 @@ export default function CitizenDashboard() {
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-2.5">
                           <span className="font-mono font-bold text-sm text-[#102B4E]">{c.tracking_id}</span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigator.clipboard.writeText(c.tracking_id.trim());
+                              setNotice(`Copied Tracking ID: ${c.tracking_id}`);
+                            }}
+                            className="p-1 text-slate-400 hover:text-[#087F78] transition-colors rounded hover:bg-slate-100"
+                            title="Copy Tracking ID"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
                           <span className="px-2.5 py-0.5 rounded-full bg-teal-50 text-[#087F78] font-bold capitalize">
                             {c.category.replace("_", " ")}
                           </span>

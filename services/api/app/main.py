@@ -41,6 +41,8 @@ origins = [
     "http://127.0.0.1:3005",
     "https://grama-seva-rho.vercel.app",
     "https://grama-seva.vercel.app",
+    "https://gramaseva.vercel.app",
+    "https://gramaseva-rho.vercel.app",
 ]
 
 app_base = os.getenv("APP_BASE_URL", "").rstrip("/")

@@ -43,9 +43,6 @@ export class ApiClient {
 
   private getCandidateBaseUrls(): string[] {
     const list: string[] = [];
-    if (this.baseUrl) {
-      list.push(this.baseUrl);
-    }
     if (typeof window !== "undefined") {
       const host = window.location.hostname;
       const isLocal = host === "localhost" || host === "127.0.0.1";
@@ -54,9 +51,13 @@ export class ApiClient {
         if (!list.includes("http://localhost:8000/api/v1")) list.push("http://localhost:8000/api/v1");
         if (!list.includes("/api/v1")) list.push("/api/v1");
       } else {
-        if (!list.includes("https://gramaseva-0p3u.onrender.com/api/v1")) list.push("https://gramaseva-0p3u.onrender.com/api/v1");
+        // In browser on Vercel: relative /api/v1 goes through Next.js server rewrite (same-origin, 0 CORS issues)
         if (!list.includes("/api/v1")) list.push("/api/v1");
+        if (!list.includes("https://gramaseva-0p3u.onrender.com/api/v1")) list.push("https://gramaseva-0p3u.onrender.com/api/v1");
       }
+    }
+    if (this.baseUrl && !list.includes(this.baseUrl)) {
+      list.push(this.baseUrl);
     }
     return list;
   }

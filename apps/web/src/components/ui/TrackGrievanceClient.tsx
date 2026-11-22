@@ -282,7 +282,13 @@ export function TrackGrievanceClient({
         <div className="rounded-2xl border border-red-200 bg-red-50/80 p-5 flex items-start gap-3.5 text-sm text-red-800">
           <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <strong className="font-bold">Complaint Not Found</strong>
+            <strong className="font-bold">
+              {error.toLowerCase().includes("could not be found") || error.toLowerCase().includes("not found")
+                ? "Complaint Not Found"
+                : error.toLowerCase().includes("cold start") || error.toLowerCase().includes("timed out")
+                ? "Server Cold Start / Timeout"
+                : "Unable to Retrieve Complaint"}
+            </strong>
             <p className="text-xs text-red-700">{error}</p>
           </div>
         </div>

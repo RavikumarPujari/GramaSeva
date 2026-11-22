@@ -1389,7 +1389,23 @@ export default function VillagePdoDashboard() {
                             </div>
                           </td>
                           <td className="py-3.5 px-4 font-bold text-[#102B4E]">
-                            {comp.reference_number || comp.id.slice(0, 8)}
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono">{comp.reference_number || comp.id.slice(0, 8)}</span>
+                              {comp.reference_number && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigator.clipboard.writeText(comp.reference_number!.trim());
+                                    setNotice(`Copied Tracking ID: ${comp.reference_number}`);
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-[#087F78] rounded hover:bg-slate-100 transition-colors"
+                                  title="Copy Tracking ID"
+                                >
+                                  <Copy className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
                           </td>
                           <td className="py-3.5 px-4">
                             <span className="font-semibold text-[#102B4E] capitalize block">
