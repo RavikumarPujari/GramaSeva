@@ -82,6 +82,25 @@ def on_startup():
     except Exception as e:
         print("[Startup] Schema verification notice:", e)
 
+    # Initialize seed images for cloud / production environments
+    try:
+        from app.storage.service import storage_service
+        import shutil
+        seed_dirs = [
+            os.path.join(storage_service.base_path, "seeds", "originals"),
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "storage", "seeds", "originals")),
+        ]
+        target_dir = storage_service.originals_dir
+        os.makedirs(target_dir, exist_ok=True)
+        for sdir in seed_dirs:
+            if os.path.exists(sdir):
+                for fname in os.listdir(sdir):
+                    tpath = os.path.join(target_dir, fname)
+                    if not os.path.exists(tpath):
+                        shutil.copy2(os.path.join(sdir, fname), tpath)
+    except Exception as e:
+        print("[Startup] Seed images sync notice:", e)
+
 
 @app.get("/")
 def root():
