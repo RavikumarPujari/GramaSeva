@@ -51,7 +51,9 @@ class AIOrchestrator:
         longitude: Optional[float] = None,
         village_name: Optional[str] = None,
         category_hint: Optional[str] = None,
+        citizen_notes: Optional[str] = None,
         full_evaluation: bool = False,
+        locale: str = "en",
         db: Optional[Session] = None,
     ) -> Dict[str, Any]:
         start_time = time.perf_counter()
@@ -97,7 +99,7 @@ class AIOrchestrator:
                 "class_id": idx,
                 "label": f"[{d.get('model_source', 'AI')}] {d.get('class', 'defect')}",
                 "confidence": round(float(d.get("confidence", 0.5)), 3),
-                "bbox": [raw_box[1], raw_box[0], raw_box[3], raw_box[2]],
+                "bbox": [raw_box[0], raw_box[1], raw_box[2], raw_box[3]],
             })
 
         predicted_category = rf_analysis.get("predicted_category") or category_hint or "road_damage"
@@ -175,6 +177,8 @@ class AIOrchestrator:
             category=predicted_category,
             defect_label=defect_label,
             village_name=village_name,
+            citizen_notes=citizen_notes,
+            locale=locale,
         )
         if gemini_details.get("description"):
             ai_description = gemini_details["description"]

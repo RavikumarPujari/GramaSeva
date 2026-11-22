@@ -107,7 +107,7 @@ export default function AIProcessingPage() {
     {
       step: 7,
       title: "7. Administrative Ward Boundary Check",
-      description: "Validates GPS coordinates against Gowdanahalli Gram Panchayat polygon boundaries to detect responsible ward.",
+      description: "Validates GPS coordinates against verified Gram Panchayat polygon boundaries to detect responsible village and ward.",
       status: "READY",
       latency: "8ms",
     },

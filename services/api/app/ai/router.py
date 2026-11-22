@@ -455,6 +455,8 @@ def _run_analysis_pipeline(
     category_hint: Optional[str],
     full_evaluation: bool,
     db: Session,
+    locale: str = "en",
+    citizen_notes: Optional[str] = None,
 ) -> UnifiedAIAnalysisResponse:
     file_bytes = file.file.read()
     if not file_bytes:
@@ -467,7 +469,9 @@ def _run_analysis_pipeline(
         longitude=longitude,
         village_name=village_name,
         category_hint=category_hint,
+        citizen_notes=citizen_notes,
         full_evaluation=full_evaluation,
+        locale=locale,
         db=db,
     )
 
@@ -534,6 +538,8 @@ def analyze_complaint(
     longitude: Optional[float] = Form(None),
     village_name: Optional[str] = Form(None),
     category_hint: Optional[str] = Form(None),
+    citizen_notes: Optional[str] = Form(None),
+    locale: str = Form("en"),
     db: Session = Depends(get_db),
 ):
     """
@@ -545,7 +551,9 @@ def analyze_complaint(
         longitude=longitude,
         village_name=village_name,
         category_hint=category_hint,
+        citizen_notes=citizen_notes,
         full_evaluation=False,
+        locale=locale,
         db=db,
     )
 
@@ -556,6 +564,8 @@ def full_ai_evaluation(
     longitude: Optional[float] = Form(None),
     village_name: Optional[str] = Form(None),
     category_hint: Optional[str] = Form(None),
+    citizen_notes: Optional[str] = Form(None),
+    locale: str = Form("en"),
     db: Session = Depends(get_db),
 ):
     """
@@ -567,7 +577,9 @@ def full_ai_evaluation(
         longitude=longitude,
         village_name=village_name,
         category_hint=category_hint,
+        citizen_notes=citizen_notes,
         full_evaluation=True,
+        locale=locale,
         db=db,
     )
 
@@ -597,10 +609,11 @@ class GeminiProblemAnalysisResponse(BaseModel):
     source: str
 
 @router.post("/gemini/analyze-problem", response_model=GeminiProblemAnalysisResponse)
-async def analyze_problem_image_with_gemini(
+def analyze_problem_image_with_gemini(
     file: UploadFile = File(...),
     category_hint: Optional[str] = Form(None),
     village_name: Optional[str] = Form(None),
+    citizen_notes: Optional[str] = Form(None),
     locale: Optional[str] = Form("en"),
 ):
     """
@@ -608,14 +621,18 @@ async def analyze_problem_image_with_gemini(
     Suggests category, generates problem title and description, assesses severity, extracts OCR text,
     and explains uncertainty when unclear. Strictly never invents GPS coordinates or village names.
     """
-    img_bytes = await file.read()
+    img_bytes = file.file.read() if hasattr(file, "file") and file.file else file.read()
     if not img_bytes:
         raise HTTPException(status_code=400, detail="Uploaded image is empty")
 
     # 1. Visual multimodal analysis
     analysis = gemini_service.analyze_image(
         image_bytes=img_bytes,
-        context={"category_hint": category_hint or "", "village_name": village_name or "Belagavi Taluk"},
+        context={
+            "category_hint": category_hint or "",
+            "village_name": village_name or "Belagavi Taluk",
+            "citizen_notes": citizen_notes or "",
+        },
     )
 
     # Category normalization to GramaSeva standard categories
@@ -647,7 +664,7 @@ async def analyze_problem_image_with_gemini(
         category=std_cat,
         defect_label=defect_label,
         village_name=village_name,
-        citizen_notes=None,
+        citizen_notes=citizen_notes,
         locale=locale or "en",
     )
 
@@ -699,4 +716,57 @@ def translate_civic_text(req: TranslateRequest):
             req.text, req.source_lang, req.target_lang
         ),
     }
+
+# --- Section 3.4: Controlled AI Model Evaluation & Reviewer Feedback ---
+from app.ai.evaluation_service import model_evaluation_service
+from app.auth.dependencies import require_roles
+
+class ModelEvaluationFeedbackRequest(BaseModel):
+    correct_category: str
+    is_correct: bool
+    audit_notes: Optional[str] = None
+
+@router.post("/models/runs/{run_id}/evaluate")
+def evaluate_model_run_prediction(
+    run_id: str,
+    req: ModelEvaluationFeedbackRequest,
+    current_reviewer: Profile = Depends(require_roles("reviewer", "admin")),
+    db: Session = Depends(get_db),
+):
+    """
+    Authorized reviewer (PDO or Admin) provides ground truth feedback on an AI prediction.
+    Appends the sample to the versioned dataset for controlled evaluation and retraining.
+    """
+    try:
+        res = model_evaluation_service.record_reviewer_feedback(
+            db=db,
+            model_run_id=run_id,
+            reviewer_profile_id=current_reviewer.id,
+            correct_category=req.correct_category,
+            is_correct=req.is_correct,
+            audit_notes=req.audit_notes,
+        )
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+@router.get("/evaluation-metrics")
+def get_ai_evaluation_metrics(
+    model_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Returns empirical evaluation metrics (Precision, Recall, F1 score, FPR, FNR, Category breakdown)
+    derived from human-verified model runs. Never fabricates metrics.
+    """
+    return model_evaluation_service.compute_evaluation_metrics(db=db, model_id=model_id)
+
+@router.get("/retraining-readiness")
+def get_model_retraining_readiness(
+    db: Session = Depends(get_db),
+):
+    """
+    Returns evaluation dataset curation status and governed retraining readiness metrics.
+    """
+    return model_evaluation_service.get_retraining_readiness(db=db)
 

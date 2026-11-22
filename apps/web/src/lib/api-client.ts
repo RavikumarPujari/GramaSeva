@@ -53,7 +53,7 @@ export class ApiClient {
   }
 
   private async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
-    const { timeoutMs = 60000, token, headers = {}, ...rest } = options;
+    const { timeoutMs = 15000, token, headers = {}, ...rest } = options;
     const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
 
     const candidates = this.getCandidateBaseUrls();
@@ -98,31 +98,39 @@ export class ApiClient {
           this.baseUrl = candidate;
         }
 
-        if (!response.ok) {
-          let errorData: any = null;
+        // Read the response body stream EXACTLY ONCE as text to prevent stream exhaustion errors
+        const rawText = await response.text();
+        let parsedData: any = null;
+        if (rawText && rawText.trim().length > 0) {
           try {
-            errorData = await response.json();
+            parsedData = JSON.parse(rawText);
           } catch {
-            errorData = await response.text();
+            parsedData = rawText;
           }
-
-          const message =
-            (typeof errorData === "object" && errorData?.detail) ||
-            (typeof errorData === "string" && errorData) ||
-            `Request failed with status ${response.status}`;
-
-          throw new ApiError(message, response.status, errorData);
         }
 
-        if (response.status === 204) {
+        if (!response.ok) {
+          const message =
+            (typeof parsedData === "object" && parsedData !== null && (parsedData.detail || parsedData.message || parsedData.error)) ||
+            (typeof parsedData === "string" && parsedData.trim().length > 0 && parsedData) ||
+            `Request failed with status ${response.status}`;
+
+          throw new ApiError(
+            typeof message === "string" ? message : JSON.stringify(message),
+            response.status,
+            parsedData
+          );
+        }
+
+        if (response.status === 204 || parsedData === null || parsedData === undefined) {
           return {} as T;
         }
 
-        return (await response.json()) as T;
+        return parsedData as T;
       } catch (err: any) {
         clearTimeout(timeoutId);
         if (err instanceof ApiError) {
-          // Server responded with an error status (e.g. 400, 401, 404), so server was reached!
+          // Server responded with an HTTP status (e.g. 400, 401, 403, 404), so server was reached!
           throw err;
         }
 

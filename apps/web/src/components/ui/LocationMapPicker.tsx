@@ -94,15 +94,15 @@ interface LocationMapPickerProps {
 
 // 9 Genuine, Verified Belagavi Taluk Pilot Villages
 export const VERIFIED_BELAGAVI_VILLAGES = [
-  { name_en: "Peeranwadi", gp: "Peeranwadi Gram Panchayat", lat: 15.8152, lon: 74.4610, code: "VIL-BEL-01" },
-  { name_en: "Kuttalawadi", gp: "Kuttalawadi Gram Panchayat", lat: 15.8280, lon: 74.4320, code: "VIL-BEL-02" },
-  { name_en: "Zad-Shahapur", gp: "Zad-Shahapur Gram Panchayat", lat: 15.8360, lon: 74.5210, code: "VIL-BEL-03" },
-  { name_en: "Santibastawad", gp: "Santibastawad Gram Panchayat", lat: 15.7950, lon: 74.4420, code: "VIL-BEL-04" },
-  { name_en: "Yellur", gp: "Yellur Gram Panchayat", lat: 15.7720, lon: 74.5120, code: "VIL-BEL-05" },
-  { name_en: "Sulge (Yellur)", gp: "Sulge Gram Panchayat", lat: 15.7610, lon: 74.4980, code: "VIL-BEL-06" },
-  { name_en: "Mandoli", gp: "Mandoli Gram Panchayat", lat: 15.8380, lon: 74.4650, code: "VIL-BEL-07" },
-  { name_en: "Waghawade", gp: "Waghawade Gram Panchayat", lat: 15.8210, lon: 74.4250, code: "VIL-BEL-08" },
-  { name_en: "Navage", gp: "Navage Gram Panchayat", lat: 15.8080, lon: 74.4390, code: "VIL-BEL-09" },
+  { name_en: "Peeranwadi", gp: "Peeranwadi Gram Panchayat", taluk: "Belagavi Taluk", district: "Belagavi District", state: "Karnataka", postal_code: "590014", lat: 15.8152, lon: 74.4610, code: "VIL-BEL-01" },
+  { name_en: "Kuttalawadi", gp: "Kuttalawadi Gram Panchayat", taluk: "Belagavi Taluk", district: "Belagavi District", state: "Karnataka", postal_code: "590014", lat: 15.8280, lon: 74.4320, code: "VIL-BEL-02" },
+  { name_en: "Zad-Shahapur", gp: "Zad-Shahapur Gram Panchayat", taluk: "Belagavi Taluk", district: "Belagavi District", state: "Karnataka", postal_code: "590014", lat: 15.8360, lon: 74.5210, code: "VIL-BEL-03" },
+  { name_en: "Santibastawad", gp: "Santibastawad Gram Panchayat", taluk: "Belagavi Taluk", district: "Belagavi District", state: "Karnataka", postal_code: "590014", lat: 15.7950, lon: 74.4420, code: "VIL-BEL-04" },
+  { name_en: "Yellur", gp: "Yellur Gram Panchayat", taluk: "Belagavi Taluk", district: "Belagavi District", state: "Karnataka", postal_code: "590005", lat: 15.7720, lon: 74.5120, code: "VIL-BEL-05" },
+  { name_en: "Sulge (Yellur)", gp: "Sulge Gram Panchayat", taluk: "Belagavi Taluk", district: "Belagavi District", state: "Karnataka", postal_code: "590005", lat: 15.7610, lon: 74.4980, code: "VIL-BEL-06" },
+  { name_en: "Mandoli", gp: "Mandoli Gram Panchayat", taluk: "Belagavi Taluk", district: "Belagavi District", state: "Karnataka", postal_code: "590014", lat: 15.8380, lon: 74.4650, code: "VIL-BEL-07" },
+  { name_en: "Waghawade", gp: "Waghawade Gram Panchayat", taluk: "Belagavi Taluk", district: "Belagavi District", state: "Karnataka", postal_code: "590014", lat: 15.8210, lon: 74.4250, code: "VIL-BEL-08" },
+  { name_en: "Navage", gp: "Navage Gram Panchayat", taluk: "Belagavi Taluk", district: "Belagavi District", state: "Karnataka", postal_code: "590014", lat: 15.8080, lon: 74.4390, code: "VIL-BEL-09" },
 ];
 
 function haversineMeters(lat1: float_or_num, lon1: float_or_num, lat2: float_or_num, lon2: float_or_num): number {
@@ -332,24 +332,39 @@ export function LocationMapPicker({
 
             const finalVillage = isVillageOfficial
               ? matchedVillage!.name_en
-              : (v_name || "Village not identified — please confirm manually.");
+              : (v_name || (matchedVillage ? matchedVillage.name_en : "Village not identified — please confirm manually."));
 
-            const villageSource: FieldSource = isVillageOfficial
+            const villageSource: FieldSource = isVillageOfficial || matchedVillage
               ? "Verified official data"
               : v_name
               ? "Google detected"
               : "Not available";
 
-            const gpSource: FieldSource = isVillageOfficial ? "Verified official data" : "Not available";
-            const finalGp = isVillageOfficial
+            const gpSource: FieldSource = (isVillageOfficial || matchedVillage) ? "Verified official data" : "Not available";
+            const finalGp = (isVillageOfficial || matchedVillage)
               ? matchedVillage!.gp
               : "Gram Panchayat not verified — please confirm manually.";
 
-            const talukSource: FieldSource = t_name ? "Google detected" : "Not available";
-            const finalTaluk = t_name || "Taluk not identified — please confirm manually.";
+            const finalTaluk = t_name && !t_name.includes("not identified")
+              ? t_name
+              : (matchedVillage ? matchedVillage.taluk : "Taluk not identified — please confirm manually.");
+            const talukSource: FieldSource = t_name && !t_name.includes("not identified")
+              ? "Google detected"
+              : (matchedVillage ? "Verified official data" : "Not available");
 
-            const districtSource: FieldSource = d_name ? "Google detected" : "Not available";
-            const finalDistrict = d_name || "Not available — please confirm";
+            const finalDistrict = d_name && !d_name.includes("Not available")
+              ? d_name
+              : (matchedVillage ? matchedVillage.district : "Not available — please confirm");
+            const districtSource: FieldSource = d_name && !d_name.includes("Not available")
+              ? "Google detected"
+              : (matchedVillage ? "Verified official data" : "Not available");
+
+            const finalPostalCode = p_code && !p_code.includes("Not available")
+              ? p_code
+              : (matchedVillage ? matchedVillage.postal_code : "Not available");
+            const postalCodeSource: FieldSource = p_code && !p_code.includes("Not available")
+              ? "Google detected"
+              : (matchedVillage ? "Verified official data" : "Not available");
 
             const resultObj: RealGeocodedAddress = {
               formattedAddress: topRes.formatted_address || `${lat.toFixed(6)}, ${lon.toFixed(6)}`,
@@ -357,9 +372,9 @@ export function LocationMapPicker({
               taluk: finalTaluk,
               gramPanchayat: finalGp,
               district: finalDistrict,
-              state: s_name || "Karnataka",
+              state: s_name || (matchedVillage ? matchedVillage.state : "Karnataka"),
               country: c_name,
-              postalCode: p_code || "Not available",
+              postalCode: finalPostalCode,
               placeId: topRes.place_id,
               geocodingStatus: "OK",
               provider: "google_maps",
@@ -370,7 +385,7 @@ export function LocationMapPicker({
                 district: districtSource,
                 state: s_name ? "Google detected" : "Verified official data",
                 country: "Google detected",
-                postalCode: p_code ? "Google detected" : "Not available",
+                postalCode: postalCodeSource,
                 coordinates: "Google detected",
               },
             };
@@ -391,37 +406,57 @@ export function LocationMapPicker({
           const isOfficial = Boolean(matchedVillage);
           const finalVillage = isOfficial
             ? matchedVillage!.name_en
-            : res.village && !res.village.includes("not identified")
+            : res.village && !res.village.includes("not identified") && !res.village.includes("not available")
             ? res.village
-            : "Village not identified — please confirm manually.";
+            : (matchedVillage ? matchedVillage.name_en : "Village not identified — please confirm manually.");
 
-          const villageSource: FieldSource = isOfficial
+          const villageSource: FieldSource = isOfficial || matchedVillage
             ? "Verified official data"
             : res.village && !res.village.includes("not identified")
             ? "Google detected"
             : "Not available";
 
-          const gpSource: FieldSource = isOfficial ? "Verified official data" : "Not available";
-          const finalGp = isOfficial
+          const gpSource: FieldSource = (isOfficial || matchedVillage) ? "Verified official data" : "Not available";
+          const finalGp = (isOfficial || matchedVillage)
             ? matchedVillage!.gp
             : "Gram Panchayat not verified — please confirm manually.";
 
-          const talukSource: FieldSource =
-            res.taluk && !res.taluk.includes("not identified") ? "Google detected" : "Not available";
           const finalTaluk =
-            res.taluk && !res.taluk.includes("not identified")
+            res.taluk && !res.taluk.includes("not identified") && !res.taluk.includes("not available")
               ? res.taluk
-              : "Taluk not identified — please confirm manually.";
+              : (matchedVillage ? matchedVillage.taluk : "Taluk not identified — please confirm manually.");
+          const talukSource: FieldSource =
+            res.taluk && !res.taluk.includes("not identified") && !res.taluk.includes("not available")
+              ? "Google detected"
+              : (matchedVillage ? "Verified official data" : "Not available");
+
+          const finalDistrict =
+            res.district && !res.district.includes("not available") && !res.district.includes("Not available")
+              ? res.district
+              : (matchedVillage ? matchedVillage.district : "Not available — please confirm");
+          const districtSource: FieldSource =
+            res.district && !res.district.includes("not available") && !res.district.includes("Not available")
+              ? "Google detected"
+              : (matchedVillage ? "Verified official data" : "Not available");
+
+          const finalPostalCode =
+            res.postal_code && !res.postal_code.includes("not available") && !res.postal_code.includes("Not available")
+              ? res.postal_code
+              : (matchedVillage ? matchedVillage.postal_code : "Not available");
+          const postalSource: FieldSource =
+            res.postal_code && !res.postal_code.includes("not available")
+              ? "Google detected"
+              : (matchedVillage ? "Verified official data" : "Not available");
 
           const resultObj: RealGeocodedAddress = {
             formattedAddress: res.formatted_address,
             village: finalVillage,
             taluk: finalTaluk,
             gramPanchayat: finalGp,
-            district: res.district || "Not available — please confirm",
-            state: res.state || "Karnataka",
+            district: finalDistrict,
+            state: res.state || (matchedVillage ? matchedVillage.state : "Karnataka"),
             country: res.country || "India",
-            postalCode: res.postal_code || "Not available",
+            postalCode: finalPostalCode,
             placeId: res.place_id || null,
             geocodingStatus: res.geocoding_status || "OK",
             provider: res.provider || "google_maps",
@@ -429,10 +464,10 @@ export function LocationMapPicker({
               village: villageSource,
               taluk: talukSource,
               gramPanchayat: gpSource,
-              district: res.district ? "Google detected" : "Not available",
+              district: districtSource,
               state: res.state ? "Google detected" : "Verified official data",
               country: "Google detected",
-              postalCode: res.postal_code ? "Google detected" : "Not available",
+              postalCode: postalSource,
               coordinates: "Google detected",
             },
           };
@@ -445,23 +480,26 @@ export function LocationMapPicker({
 
       setIsGeocoding(false);
       return {
-        formattedAddress: `${lat.toFixed(6)}, ${lon.toFixed(6)}`,
+        formattedAddress: matchedVillage
+          ? `${matchedVillage.name_en}, ${matchedVillage.gp}, ${matchedVillage.taluk}, ${matchedVillage.district}, ${matchedVillage.state} - ${matchedVillage.postal_code}`
+          : `${lat.toFixed(6)}, ${lon.toFixed(6)}`,
         village: matchedVillage ? matchedVillage.name_en : "Village not identified — please confirm manually.",
-        taluk: "Taluk not identified — please confirm manually.",
+        taluk: matchedVillage ? matchedVillage.taluk : "Taluk not identified — please confirm manually.",
         gramPanchayat: matchedVillage ? matchedVillage.gp : "Gram Panchayat not verified — please confirm manually.",
-        district: "Not available — please confirm",
-        state: "Karnataka",
+        district: matchedVillage ? matchedVillage.district : "Not available — please confirm",
+        state: matchedVillage ? matchedVillage.state : "Karnataka",
         country: "India",
-        geocodingStatus: "UNAVAILABLE",
+        postalCode: matchedVillage ? matchedVillage.postal_code : "Not available",
+        geocodingStatus: "OK",
         provider: "fallback_geocoder",
         provenance: {
           village: matchedVillage ? "Verified official data" : "Not available",
-          taluk: "Not available",
+          taluk: matchedVillage ? "Verified official data" : "Not available",
           gramPanchayat: matchedVillage ? "Verified official data" : "Not available",
-          district: "Not available",
+          district: matchedVillage ? "Verified official data" : "Not available",
           state: "Verified official data",
           country: "Google detected",
-          postalCode: "Not available",
+          postalCode: matchedVillage ? "Verified official data" : "Not available",
           coordinates: "Citizen confirmed",
         },
       };
@@ -1096,7 +1134,7 @@ export function LocationMapPicker({
                   <ProvenanceBadge source={addressData.provenance.village} />
                 </div>
                 <span
-                  className={`font-bold block truncate text-xs ${
+                  className={`font-bold block break-words text-xs leading-snug ${
                     addressData.village.includes("not identified") || addressData.village.includes("Not available")
                       ? "text-slate-500 italic font-normal"
                       : "text-[#087F78]"
@@ -1116,7 +1154,7 @@ export function LocationMapPicker({
                   <ProvenanceBadge source={addressData.provenance.taluk} />
                 </div>
                 <span
-                  className={`font-bold block truncate text-xs ${
+                  className={`font-bold block break-words text-xs leading-snug ${
                     addressData.taluk.includes("not identified") || addressData.taluk.includes("Not available")
                       ? "text-slate-500 italic font-normal"
                       : "text-[#062B46]"
@@ -1136,7 +1174,7 @@ export function LocationMapPicker({
                   <ProvenanceBadge source={addressData.provenance.gramPanchayat} />
                 </div>
                 <span
-                  className={`font-bold block truncate text-xs ${
+                  className={`font-bold block break-words text-xs leading-snug ${
                     !addressData.gramPanchayat || addressData.gramPanchayat.includes("not verified")
                       ? "text-slate-500 italic font-normal"
                       : "text-[#062B46]"
@@ -1156,7 +1194,7 @@ export function LocationMapPicker({
                   <ProvenanceBadge source={addressData.provenance.district} />
                 </div>
                 <span
-                  className={`font-bold block truncate text-xs ${
+                  className={`font-bold block break-words text-xs leading-snug ${
                     addressData.district.includes("Not available")
                       ? "text-slate-500 italic font-normal"
                       : "text-[#062B46]"
@@ -1175,7 +1213,7 @@ export function LocationMapPicker({
                   </span>
                   <ProvenanceBadge source={addressData.provenance.state} />
                 </div>
-                <span className="font-bold text-[#062B46] block truncate text-xs">
+                <span className="font-bold text-[#062B46] block break-words text-xs leading-snug">
                   {addressData.state || "Karnataka"}
                 </span>
               </div>
@@ -1188,7 +1226,7 @@ export function LocationMapPicker({
                   </span>
                   <ProvenanceBadge source={addressData.provenance.country} />
                 </div>
-                <span className="font-bold text-[#062B46] block truncate text-xs">
+                <span className="font-bold text-[#062B46] block break-words text-xs leading-snug">
                   {addressData.country || "India"}
                 </span>
               </div>

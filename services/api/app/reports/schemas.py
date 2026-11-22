@@ -160,6 +160,7 @@ class CheckDuplicatesRequest(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     description: Optional[str] = None
+    media_id: Optional[str] = None
     max_radius: Optional[float] = 1000.0
 
 class ReportResponse(BaseModel):

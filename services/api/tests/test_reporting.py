@@ -40,15 +40,31 @@ def generate_test_png(width=100, height=100) -> bytes:
 class TestCitizenReportingAndMedia(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        seed_database()
         cls.db = SessionLocal()
         cls.citizen_a = cls.db.query(Profile).filter(Profile.email == "citizen.ananya@example.com").first()
         cls.citizen_b = cls.db.query(Profile).filter(Profile.email == "citizen.suresh@example.com").first()
-        cls.reviewer = cls.db.query(Profile).filter(Profile.email == "reviewer.gowdanahalli@fixproof.org").first()
+        if not cls.citizen_b:
+            cls.citizen_b = Profile(
+                id=str(uuid.uuid4()),
+                email="citizen.suresh@example.com",
+                full_name="Suresh Gowda",
+                password_hash="$2b$12$e8Yk2wQ...dummy",
+                is_active=True,
+            )
+            cls.db.add(cls.citizen_b)
+            cls.db.commit()
+        cls.reviewer = cls.db.query(Profile).filter((Profile.email.like("%pdo%")) | (Profile.email.like("%reviewer%"))).first()
 
     @classmethod
     def tearDownClass(cls):
-        cls.db.close()
+        try:
+            if cls.citizen_b and cls.citizen_b.email == "citizen.suresh@example.com":
+                cls.db.query(Profile).filter(Profile.id == cls.citizen_b.id).delete(synchronize_session=False)
+                cls.db.commit()
+        except Exception:
+            cls.db.rollback()
+        finally:
+            cls.db.close()
 
     def test_01_media_security_validation(self):
         """Verify strict magic bytes and decodability validation."""

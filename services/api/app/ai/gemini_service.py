@@ -27,8 +27,11 @@ class GeminiService:
 
     def __init__(self):
         self.api_key = settings.gemini_api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
-        self.model_name = settings.gemini_model or os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-        self.timeout_seconds = 8.0
+        configured_model = settings.gemini_model or os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+        if configured_model in ("gemini-1.5-flash", "gemini-2.5-flash"):
+            configured_model = "gemini-3.5-flash"
+        self.model_name = configured_model
+        self.timeout_seconds = 2.0
 
     def is_available(self) -> bool:
         """Checks if a valid, non-placeholder Gemini API key is configured."""
@@ -42,24 +45,37 @@ class GeminiService:
         if not self.is_available():
             return None
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent?key={self.api_key}"
+        models_to_try = [self.model_name]
+        for fallback_m in ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-flash-latest"]:
+            if fallback_m not in models_to_try:
+                models_to_try.append(fallback_m)
+
         body = {"contents": contents}
         if generation_config:
             body["generationConfig"] = generation_config
+        payload = json.dumps(body).encode("utf-8")
 
-        try:
-            payload = json.dumps(body).encode("utf-8")
-            req = urllib.request.Request(
-                url,
-                data=payload,
-                headers={"Content-Type": "application/json"}
-            )
-            with urllib.request.urlopen(req, timeout=self.timeout_seconds) as response:
-                if response.status == 200:
-                    return json.loads(response.read().decode("utf-8"))
-        except Exception as e:
-            # Silent fallback to deterministic heuristics
-            return None
+        for m_name in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{m_name}:generateContent?key={self.api_key}"
+            try:
+                req = urllib.request.Request(
+                    url,
+                    data=payload,
+                    headers={"Content-Type": "application/json"}
+                )
+                with urllib.request.urlopen(req, timeout=self.timeout_seconds) as response:
+                    if response.status == 200:
+                        self.model_name = m_name
+                        return json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    continue  # Try next model in fallback list
+                return None
+            except urllib.error.URLError:
+                # Network unreachable or connection timed out: do not loop through fallback models
+                return None
+            except Exception:
+                return None
         return None
 
     # 1. Multimodal Image Understanding

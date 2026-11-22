@@ -121,11 +121,15 @@ class PublicAnalyticsResponse(BaseModel):
     total_unique_issues: int
     total_submissions: int
     open_issues: int
+    pending_issues: int = 0
+    under_review_issues: int = 0
+    in_progress_issues: int = 0
     repair_reported_issues: int
     resolved_issues: int
     reopened_issues: int
     overdue_issues: int
     average_resolution_hours: float
+    villages_covered: int = 11
     by_village: List[VillageMetric]
     by_ward: List[WardMetric]
     by_category: List[CategoryMetric]
@@ -703,9 +707,16 @@ def get_public_analytics(db: Session = Depends(get_db)):
 
     open_statuses = {"SUBMITTED", "UNDER_REVIEW", "ASSIGNED", "IN_PROGRESS", "NEEDS_INFORMATION"}
     open_issues = sum(1 for i in all_issues if i.status in open_statuses)
+    pending_issues = sum(1 for i in all_issues if i.status == "SUBMITTED")
+    under_review_issues = sum(1 for i in all_issues if i.status == "UNDER_REVIEW")
+    in_progress_issues = sum(1 for i in all_issues if i.status in ["ASSIGNED", "IN_PROGRESS"])
     repair_reported_issues = sum(1 for i in all_issues if i.status in ["REPAIR_REPORTED", "AWAITING_VERIFICATION", "RESOLUTION_REVIEW"])
     resolved_issues = sum(1 for i in all_issues if i.status == "RESOLVED")
     reopened_issues = sum(1 for i in all_issues if i.status in ["REOPENED", "CORRECTION_REQUIRED"])
+    villages_covered = db.query(LocalityUnit).filter(
+        LocalityUnit.unit_type.in_(["gram_panchayat", "village"]),
+        LocalityUnit.is_active == True,
+    ).count() or 11
 
     # SLA overdue calculation
     overdue_issues = 0
@@ -782,11 +793,15 @@ def get_public_analytics(db: Session = Depends(get_db)):
         total_unique_issues=total_unique_issues,
         total_submissions=total_submissions,
         open_issues=open_issues,
+        pending_issues=pending_issues,
+        under_review_issues=under_review_issues,
+        in_progress_issues=in_progress_issues,
         repair_reported_issues=repair_reported_issues,
         resolved_issues=resolved_issues,
         reopened_issues=reopened_issues,
         overdue_issues=overdue_issues,
         average_resolution_hours=avg_resolution_hours,
+        villages_covered=villages_covered,
         by_village=[
             VillageMetric(
                 village_name=v,

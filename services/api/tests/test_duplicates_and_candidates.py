@@ -48,10 +48,10 @@ class TestDuplicatesAndAICandidates(unittest.TestCase):
             cls.db.add(cls.org)
             cls.db.flush()
 
-        cls.reviewer = cls.db.query(Profile).filter(Profile.email.like("%reviewer%")).first()
+        cls.reviewer = cls.db.query(Profile).filter((Profile.email.like("%pdo%")) | (Profile.email.like("%reviewer%"))).first()
         if not cls.reviewer:
             cls.reviewer = Profile(
-                auth_user_id="auth-reviewer-test",
+                id=str(uuid.uuid4()),
                 full_name="Panchayat Reviewer Test",
                 phone_number="+919876543210",
                 email="reviewer.test@panchayat.gov.in",
@@ -63,7 +63,7 @@ class TestDuplicatesAndAICandidates(unittest.TestCase):
         cls.citizen = cls.db.query(Profile).filter(Profile.email.like("%citizen%")).first()
         if not cls.citizen:
             cls.citizen = Profile(
-                auth_user_id="auth-citizen-test",
+                id=str(uuid.uuid4()),
                 full_name="Citizen Tester",
                 phone_number="+919876500001",
                 email="citizen.test@fixproof.org",
@@ -76,7 +76,17 @@ class TestDuplicatesAndAICandidates(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        cls.db.close()
+        try:
+            from app.models.issues import DuplicateCandidate, MediaAsset, Submission, Issue
+            cls.db.query(DuplicateCandidate).delete(synchronize_session=False)
+            cls.db.query(MediaAsset).delete(synchronize_session=False)
+            cls.db.query(Submission).delete(synchronize_session=False)
+            cls.db.query(Issue).delete(synchronize_session=False)
+            cls.db.commit()
+        except Exception:
+            cls.db.rollback()
+        finally:
+            cls.db.close()
 
     def test_01_multi_signal_duplicate_ranking_math(self):
         """Verifies spatial, text, and visual similarity computations combine into transparent score and explanation."""

@@ -107,7 +107,14 @@ class RoboflowCentralEngine:
             )
 
         try:
-            raw_res = client.infer(temp_img_path, model_id=descriptor.model_id)
+            import socket
+            orig_timeout = socket.getdefaulttimeout()
+            socket.setdefaulttimeout(2.5)
+            try:
+                raw_res = client.infer(temp_img_path, model_id=descriptor.model_id)
+            finally:
+                socket.setdefaulttimeout(orig_timeout)
+
             latency_ms = int((time.time() - start_time) * 1000)
 
             parsed = RoboflowResultParser.parse(

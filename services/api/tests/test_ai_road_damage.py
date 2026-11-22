@@ -35,13 +35,19 @@ class TestAIRoadDamageModel(unittest.TestCase):
             cls.db.add(cls.org)
             cls.db.flush()
 
-        cls.reviewer = cls.db.query(Profile).filter(Profile.email.like("%reviewer%")).first()
+        cls.reviewer = cls.db.query(Profile).filter((Profile.email.like("%pdo%")) | (Profile.email.like("%reviewer%"))).first()
         cls.citizen = cls.db.query(Profile).filter(Profile.email.like("%citizen%")).first()
         cls.db.commit()
 
     @classmethod
     def tearDownClass(cls):
-        cls.db.close()
+        try:
+            cls.db.query(ModelRun).filter(ModelRun.model_id == "oracl4-rdd-yolov8s").delete(synchronize_session=False)
+            cls.db.commit()
+        except Exception:
+            cls.db.rollback()
+        finally:
+            cls.db.close()
 
     def test_01_actual_checkpoint_loads_and_verifies_hash(self):
         """Verifies the actual YOLOv8_Small_RDD.pt checkpoint loads and matches expected provenance hash."""

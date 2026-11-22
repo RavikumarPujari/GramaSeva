@@ -17,6 +17,7 @@ import {
   Camera,
   RefreshCw,
   FileText,
+  Star,
 } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 
@@ -63,12 +64,13 @@ interface TrackedIssue {
 }
 
 const LIFECYCLE_STEPS = [
-  { key: "SUBMITTED", label: "Submitted" },
-  { key: "UNDER_REVIEW", label: "Under Review" },
-  { key: "ASSIGNED", label: "Assigned" },
-  { key: "IN_PROGRESS", label: "In Progress" },
-  { key: "REPAIR_REPORTED", label: "Repair Reported" },
-  { key: "RESOLVED", label: "Verified & Resolved" },
+  { key: "SUBMITTED", label: "Complaint Submitted", icon: "📝" },
+  { key: "UNDER_REVIEW", label: "Accepted by PDO", icon: "👨‍💼" },
+  { key: "ASSIGNED", label: "Worker Assigned", icon: "👷" },
+  { key: "IN_PROGRESS", label: "Work Started", icon: "🔧" },
+  { key: "REPAIR_REPORTED", label: "Completion Evidence", icon: "📸" },
+  { key: "RESOLVED", label: "PDO Verified", icon: "✅" },
+  { key: "FEEDBACK", label: "Citizen Feedback", icon: "⭐" },
 ];
 
 function getMediaUrl(url?: string): string {
@@ -105,6 +107,13 @@ export function TrackGrievanceClient({
   const [afterImgLoaded, setAfterImgLoaded] = useState(false);
   const [afterImgError, setAfterImgError] = useState(false);
 
+  // Resolution Feedback State
+  const [feedbackRating, setFeedbackRating] = useState<number>(5);
+  const [feedbackComment, setFeedbackComment] = useState<string>("");
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+
   const fetchTracking = async (trackingRef: string) => {
     if (!trackingRef.trim()) return;
     setLoading(true);
@@ -115,18 +124,64 @@ export function TrackGrievanceClient({
       const res = await apiClient.get<TrackedIssue>(`/public/track/${encodeURIComponent(cleanRef)}`);
       setData(res);
       setActiveTrackingId(cleanRef);
+      if (res && res.status === "RESOLVED") {
+        try {
+          const fb = await apiClient.get<{ has_feedback: boolean; rating?: number; comment?: string }>(
+            `/reports/${encodeURIComponent(cleanRef)}/feedback`
+          );
+          if (fb?.has_feedback) {
+            setFeedbackSubmitted(true);
+            if (fb.rating) setFeedbackRating(fb.rating);
+            if (fb.comment) setFeedbackComment(fb.comment);
+          }
+        } catch {
+          // ignore error if feedback not checked
+        }
+      }
     } catch {
       try {
         // Fallback to /public/issues/{cleanRef}
         const fallbackRes = await apiClient.get<TrackedIssue>(`/public/issues/${encodeURIComponent(cleanRef)}`);
         setData(fallbackRes);
         setActiveTrackingId(cleanRef);
+        if (fallbackRes && fallbackRes.status === "RESOLVED") {
+          try {
+            const fb = await apiClient.get<{ has_feedback: boolean; rating?: number; comment?: string }>(
+              `/reports/${encodeURIComponent(cleanRef)}/feedback`
+            );
+            if (fb?.has_feedback) {
+              setFeedbackSubmitted(true);
+              if (fb.rating) setFeedbackRating(fb.rating);
+              if (fb.comment) setFeedbackComment(fb.comment);
+            }
+          } catch {
+            // ignore
+          }
+        }
       } catch (err: any) {
         setError(`Complaint '${cleanRef}' could not be found. Please check your Tracking ID and try again.`);
         setData(null);
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleFeedbackSubmit = async () => {
+    if (!data) return;
+    setIsSubmittingFeedback(true);
+    setFeedbackError(null);
+    try {
+      await apiClient.post(`/reports/${data.reference_number}/feedback`, {
+        rating: feedbackRating,
+        comment: feedbackComment.trim() || undefined,
+        is_satisfied: feedbackRating >= 3,
+      });
+      setFeedbackSubmitted(true);
+    } catch (err: any) {
+      setFeedbackError(err?.message || "Failed to submit feedback. Please ensure you are logged in as the reporter.");
+    } finally {
+      setIsSubmittingFeedback(false);
     }
   };
 
@@ -152,7 +207,8 @@ export function TrackGrievanceClient({
     }
   };
 
-  const getCurrentStepIndex = (status: string) => {
+  const getCurrentStepIndex = (status: string, hasFeedback: boolean) => {
+    if (hasFeedback) return 6;
     const s = (status || "").toUpperCase();
     if (s === "RESOLVED") return 5;
     if (s === "REPAIR_REPORTED" || s === "AWAITING_VERIFICATION") return 4;
@@ -162,7 +218,7 @@ export function TrackGrievanceClient({
     return 0;
   };
 
-  const currentStep = data ? getCurrentStepIndex(data.status) : 0;
+  const currentStep = data ? getCurrentStepIndex(data.status, feedbackSubmitted) : 0;
 
   return (
     <div className="max-w-5xl mx-auto space-y-8">
@@ -202,23 +258,10 @@ export function TrackGrievanceClient({
           </button>
         </form>
 
-        {/* Suggested Quick Reference Tags */}
-        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 pt-1">
-          <span>Sample references:</span>
-          {["GS-2026-07923", "GS-2026-04118", "GS-2026-09214"].map((ref) => (
-            <button
-              key={ref}
-              type="button"
-              onClick={() => {
-                setSearchInput(ref);
-                fetchTracking(ref);
-              }}
-              className="font-mono px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-teal-50 hover:text-teal-800 transition-colors cursor-pointer"
-            >
-              {ref}
-            </button>
-          ))}
-        </div>
+        {/* Quick Format Hint */}
+        <p className="text-xs text-slate-400 pt-1">
+          Enter your official tracking ID provided at the time of submission (e.g., GS-2026-BEL-XXXXX).
+        </p>
       </div>
 
       {/* Error Notice */}
@@ -290,7 +333,7 @@ export function TrackGrievanceClient({
               Civic Milestone Progress
             </h3>
 
-            <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
               {LIFECYCLE_STEPS.map((step, idx) => {
                 const isPassed = idx <= currentStep;
                 const isCurrent = idx === currentStep;
@@ -437,6 +480,119 @@ export function TrackGrievanceClient({
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Step 7: Citizen Feedback (When RESOLVED) */}
+          {data.status === "RESOLVED" && (
+            <div className="rounded-2xl border border-teal-200 bg-teal-50/40 p-6 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center shrink-0">
+                  <Star className="w-5 h-5 text-teal-700 fill-teal-600" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="font-bold text-slate-800 text-base">
+                    {feedbackSubmitted ? "⭐ Citizen Feedback Recorded" : "⭐ Citizen Feedback & Rating"}
+                  </h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    {feedbackSubmitted
+                      ? "Thank you for your valuable feedback! Your response helps the Gram Panchayat maintain high quality public services."
+                      : "🎉 Your complaint has been resolved! Thank you for helping make your community better. Please share your feedback about the work."}
+                  </p>
+                </div>
+              </div>
+
+              {feedbackSubmitted ? (
+                <div className="bg-white rounded-xl p-4 border border-teal-100 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <Star
+                        key={s}
+                        className={`w-5 h-5 ${
+                          s <= feedbackRating ? "text-amber-400 fill-amber-400" : "text-slate-200"
+                        }`}
+                      />
+                    ))}
+                    <span className="text-xs font-bold text-slate-700 ml-2">
+                      {feedbackRating} / 5 Stars
+                    </span>
+                  </div>
+                  {feedbackComment && (
+                    <span className="text-xs text-slate-500 italic max-w-xs truncate">
+                      &ldquo;{feedbackComment}&rdquo;
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3 pt-1">
+                  {/* Rating Stars */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-slate-700">Rating:</span>
+                    <div className="flex items-center gap-1">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button
+                          key={star}
+                          type="button"
+                          onClick={() => setFeedbackRating(star)}
+                          className="p-1 hover:scale-110 transition-transform cursor-pointer"
+                          title={`${star} Star${star > 1 ? "s" : ""}`}
+                        >
+                          <Star
+                            className={`w-6 h-6 ${
+                              star <= feedbackRating
+                                ? "text-amber-400 fill-amber-400"
+                                : "text-slate-300 hover:text-amber-200"
+                            }`}
+                          />
+                        </button>
+                      ))}
+                    </div>
+                    <span className="text-xs font-bold text-slate-600 ml-1">
+                      {feedbackRating === 5
+                        ? "Excellent"
+                        : feedbackRating === 4
+                        ? "Good"
+                        : feedbackRating === 3
+                        ? "Satisfactory"
+                        : feedbackRating === 2
+                        ? "Needs Improvement"
+                        : "Unsatisfactory"}
+                    </span>
+                  </div>
+
+                  {/* Comment */}
+                  <textarea
+                    value={feedbackComment}
+                    onChange={(e) => setFeedbackComment(e.target.value)}
+                    placeholder="Optional: How was the quality of the repair or communication? (Any details are appreciated)"
+                    rows={2}
+                    className="w-full text-xs p-3 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-[#087F78]"
+                  />
+
+                  {feedbackError && (
+                    <p className="text-xs text-rose-600 font-semibold">{feedbackError}</p>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleFeedbackSubmit}
+                    disabled={isSubmittingFeedback}
+                    className="px-5 py-2.5 rounded-xl bg-[#087F78] text-white text-xs font-bold hover:bg-[#066B65] transition-all flex items-center gap-2 cursor-pointer shadow-xs disabled:opacity-50"
+                  >
+                    {isSubmittingFeedback ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        Submitting Feedback...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Submit Feedback
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

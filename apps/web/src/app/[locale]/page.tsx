@@ -21,6 +21,10 @@ import {
   Sparkles,
   Users,
   FileText,
+  Clock,
+  RotateCcw,
+  Wrench,
+  AlertCircle,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { WasteManagementSection } from "@/components/ui/WasteManagementSection";
@@ -33,24 +37,36 @@ async function getHeroStats() {
   try {
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
     const res = await fetch(`${apiBase}/api/v1/public/analytics`, {
-      next: { revalidate: 30 },
-      signal: AbortSignal.timeout(2000),
+      next: { revalidate: 10 },
+      signal: AbortSignal.timeout(2500),
     });
     if (res.ok) {
       const data = await res.json();
       return {
         totalIssues: data.total_unique_issues ?? 0,
+        pendingIssues: data.pending_issues ?? 0,
+        underReviewIssues: data.under_review_issues ?? 0,
+        inProgressIssues: data.in_progress_issues ?? 0,
+        awaitingVerificationIssues: data.awaiting_verification_issues ?? data.repair_reported_issues ?? 0,
         resolvedIssues: data.resolved_issues ?? 0,
-        villagesCovered: (data.village_metrics && data.village_metrics.length) || 9,
+        reopenedIssues: data.reopened_issues ?? 0,
+        villagesCovered: data.villages_covered ?? 0,
+        byCategory: Array.isArray(data.by_category) ? data.by_category : [],
       };
     }
   } catch {
-    // Return legitimate baseline for Belagavi Taluk
+    // Graceful fallback when API is unreachable
   }
   return {
     totalIssues: 0,
+    pendingIssues: 0,
+    underReviewIssues: 0,
+    inProgressIssues: 0,
+    awaitingVerificationIssues: 0,
     resolvedIssues: 0,
-    villagesCovered: 9,
+    reopenedIssues: 0,
+    villagesCovered: 0,
+    byCategory: [],
   };
 }
 
@@ -210,8 +226,8 @@ export default async function HomePage({ params: { locale } }: HomePageProps) {
           <div className="mt-8 lg:mt-12 bg-white/95 backdrop-blur-md rounded-2xl border border-[#DCE5EE] shadow-md p-4 sm:p-5 max-w-xl lg:max-w-2xl xl:max-w-3xl">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 divide-y sm:divide-y-0 sm:divide-x divide-[#DCE5EE]">
               {/* Stat 1: Issues Reported */}
-              <div className="flex items-center gap-3 pt-2.5 sm:pt-0 sm:px-2">
-                <div className="w-10 h-10 rounded-xl bg-[#00A99D]/10 border border-[#00A99D]/20 flex items-center justify-center shrink-0">
+              <Link href={`/${locale}/public`} className="flex items-center gap-3 pt-2.5 sm:pt-0 sm:px-2 group transition-opacity hover:opacity-80">
+                <div className="w-10 h-10 rounded-xl bg-[#00A99D]/10 border border-[#00A99D]/20 flex items-center justify-center shrink-0 group-hover:bg-[#00A99D]/20 transition-colors">
                   <FileText className="w-5 h-5 text-[#00A99D]" />
                 </div>
                 <div>
@@ -220,11 +236,11 @@ export default async function HomePage({ params: { locale } }: HomePageProps) {
                   </div>
                   <div className="text-[11px] font-semibold text-[#40536B]">Issues Reported</div>
                 </div>
-              </div>
+              </Link>
 
               {/* Stat 2: Resolved */}
-              <div className="flex items-center gap-3 pt-2.5 sm:pt-0 sm:px-2">
-                <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-500/20 flex items-center justify-center shrink-0">
+              <Link href={`/${locale}/public?status=RESOLVED`} className="flex items-center gap-3 pt-2.5 sm:pt-0 sm:px-2 group transition-opacity hover:opacity-80">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-500/20 flex items-center justify-center shrink-0 group-hover:bg-emerald-100 transition-colors">
                   <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                 </div>
                 <div>
@@ -233,11 +249,11 @@ export default async function HomePage({ params: { locale } }: HomePageProps) {
                   </div>
                   <div className="text-[11px] font-semibold text-[#40536B]">Resolved</div>
                 </div>
-              </div>
+              </Link>
 
               {/* Stat 3: Villages Covered */}
-              <div className="flex items-center gap-3 pt-2.5 sm:pt-0 sm:px-2">
-                <div className="w-10 h-10 rounded-xl bg-sky-50 border border-sky-500/20 flex items-center justify-center shrink-0">
+              <Link href={`/${locale}/public`} className="flex items-center gap-3 pt-2.5 sm:pt-0 sm:px-2 group transition-opacity hover:opacity-80">
+                <div className="w-10 h-10 rounded-xl bg-sky-50 border border-sky-500/20 flex items-center justify-center shrink-0 group-hover:bg-sky-100 transition-colors">
                   <Users className="w-5 h-5 text-sky-600" />
                 </div>
                 <div>
@@ -246,7 +262,7 @@ export default async function HomePage({ params: { locale } }: HomePageProps) {
                   </div>
                   <div className="text-[11px] font-semibold text-[#40536B]">Villages Covered</div>
                 </div>
-              </div>
+              </Link>
 
               {/* Stat 4: Transparent */}
               <div className="flex items-center gap-3 pt-2.5 sm:pt-0 sm:px-2">
@@ -263,10 +279,10 @@ export default async function HomePage({ params: { locale } }: HomePageProps) {
         </div>
       </section>
 
-      {/* 2. Waste Management & Civic Cleanliness Section (Replaces lower 4 generic cards) */}
+      {/* 2. Waste Management & Civic Cleanliness Section */}
       <WasteManagementSection />
 
-      {/* 3. Problem Categories Grid */}
+      {/* 4. Problem Categories Grid */}
       <section className="py-14 sm:py-18 bg-[#F4F8FC]">
         <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12">
           <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 sm:mb-10">
@@ -290,32 +306,44 @@ export default async function HomePage({ params: { locale } }: HomePageProps) {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {categories.map((cat) => (
-              <Link
-                key={cat.id}
-                href={`/${locale}/report?category=${cat.id}`}
-                className="group focus:outline-none"
-              >
-                <Card
-                  hoverEffect
-                  className="h-full bg-white border border-[#DCE5EE] hover:border-[#087F78]/60 hover:shadow-sm transition-all p-5 rounded-2xl"
+            {categories.map((cat) => {
+              const catStat = stats.byCategory.find((c: any) => c.category.toLowerCase() === cat.id.toLowerCase());
+              const catCount = catStat?.count ?? 0;
+              return (
+                <Link
+                  key={cat.id}
+                  href={`/${locale}/public?category=${cat.id}`}
+                  className="group focus:outline-none"
                 >
-                  <div className="flex items-start gap-4">
-                    <div className="p-3 rounded-xl bg-[#F4F8FC] border border-[#DCE5EE] group-hover:bg-[#087F78]/10 group-hover:border-[#087F78]/30 transition-colors">
-                      {cat.icon}
+                  <Card
+                    hoverEffect
+                    className="h-full bg-white border border-[#DCE5EE] hover:border-[#087F78]/60 hover:shadow-sm transition-all p-5 rounded-2xl"
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="p-3 rounded-xl bg-[#F4F8FC] border border-[#DCE5EE] group-hover:bg-[#087F78]/10 group-hover:border-[#087F78]/30 transition-colors">
+                        {cat.icon}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <h3 className="font-bold text-[#102B4E] text-base group-hover:text-[#087F78] transition-colors">
+                            {cat.name}
+                          </h3>
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 group-hover:bg-[#087F78]/10 group-hover:text-[#087F78] transition-colors whitespace-nowrap">
+                            {catCount} {catCount === 1 ? "report" : "reports"}
+                          </span>
+                        </div>
+                        <p className="text-xs sm:text-sm text-[#40536B] mt-1 leading-relaxed">
+                          {cat.desc}
+                        </p>
+                        <div className="mt-3 flex items-center gap-3 pt-2 border-t border-slate-100 text-xs font-semibold text-[#087F78]">
+                          <span>Browse public reports &rarr;</span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex-1">
-                      <h3 className="font-bold text-[#102B4E] text-base group-hover:text-[#087F78] transition-colors">
-                        {cat.name}
-                      </h3>
-                      <p className="text-xs sm:text-sm text-[#40536B] mt-1 leading-relaxed">
-                        {cat.desc}
-                      </p>
-                    </div>
-                  </div>
-                </Card>
-              </Link>
-            ))}
+                  </Card>
+                </Link>
+              );
+            })}
           </div>
         </div>
       </section>

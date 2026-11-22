@@ -15,7 +15,9 @@ import {
   ArrowRight,
   UserCheck,
   FileText,
+  RefreshCw,
 } from "lucide-react";
+import { apiClient } from "@/lib/api-client";
 
 interface AccountMenuProps {
   className?: string;
@@ -30,6 +32,7 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [connectingPortal, setConnectingPortal] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const locale = useLocale();
   const tNav = useTranslations("navigation");
@@ -86,6 +89,41 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({
   const handleLinkClick = () => {
     setIsOpen(false);
     if (onNavigate) onNavigate();
+  };
+
+  const handleRolePortalClick = async (e: React.MouseEvent, portalLabel: string, href: string) => {
+    e.preventDefault();
+    setConnectingPortal(portalLabel);
+    try {
+      const endpoint =
+        portalLabel === "Super Admin"
+          ? "/auth/dev-admin-session"
+          : portalLabel === "Field Worker"
+          ? "/auth/dev-worker-session"
+          : portalLabel === "Citizen Dashboard"
+          ? "/auth/dev-citizen-session"
+          : "/auth/dev-pdo-session";
+
+      const res = await apiClient.post<any>(endpoint);
+      if (res && res.access_token) {
+        localStorage.setItem("gramaseva_token", res.access_token);
+        localStorage.setItem("access_token", res.access_token);
+        if (res.profile) {
+          localStorage.setItem("gramaseva_user", JSON.stringify(res.profile));
+          setCurrentUser(res.profile);
+        }
+      }
+      setIsOpen(false);
+      if (onNavigate) onNavigate();
+      window.location.href = href;
+    } catch (err) {
+      console.warn("Dev session establishment error:", err);
+      setIsOpen(false);
+      if (onNavigate) onNavigate();
+      window.location.href = href;
+    } finally {
+      setConnectingPortal(null);
+    }
   };
 
   const portalLinks = [
@@ -154,30 +192,37 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({
           </div>
 
           <div className="space-y-0.5">
-            {portalLinks.map((portal) => (
-              <Link
-                key={portal.href}
-                href={portal.href}
-                onClick={handleLinkClick}
-                role="menuitem"
-                className="flex items-center justify-between px-2.5 py-2 rounded-xl hover:bg-[#F4F8FC] group transition-all"
-              >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-7 h-7 rounded-lg bg-slate-50 border border-slate-200/60 flex items-center justify-center shrink-0 group-hover:border-teal-200 group-hover:bg-teal-50/50 transition-colors">
-                    {portal.icon}
+            {portalLinks.map((portal) => {
+              const isConnecting = connectingPortal === portal.label;
+              return (
+                <Link
+                  key={portal.href}
+                  href={portal.href}
+                  onClick={(e) => handleRolePortalClick(e, portal.label, portal.href)}
+                  role="menuitem"
+                  className="flex items-center justify-between px-2.5 py-2 rounded-xl hover:bg-[#F4F8FC] group transition-all"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-7 h-7 rounded-lg bg-slate-50 border border-slate-200/60 flex items-center justify-center shrink-0 group-hover:border-teal-200 group-hover:bg-teal-50/50 transition-colors">
+                      {isConnecting ? (
+                        <RefreshCw className="w-4 h-4 text-[#087F78] animate-spin" />
+                      ) : (
+                        portal.icon
+                      )}
+                    </div>
+                    <div className="truncate text-left">
+                      <p className="font-bold text-[#102B4E] group-hover:text-[#087F78] text-xs transition-colors truncate">
+                        {portal.label}
+                      </p>
+                      <p className="text-[10px] text-[#40536B] truncate">
+                        {isConnecting ? `Connecting demo ${portal.label}...` : portal.subtitle}
+                      </p>
+                    </div>
                   </div>
-                  <div className="truncate text-left">
-                    <p className="font-bold text-[#102B4E] group-hover:text-[#087F78] text-xs transition-colors truncate">
-                      {portal.label}
-                    </p>
-                    <p className="text-[10px] text-[#40536B] truncate">
-                      {portal.subtitle}
-                    </p>
-                  </div>
-                </div>
-                <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-[#087F78] group-hover:translate-x-0.5 transition-all shrink-0 ml-2" />
-              </Link>
-            ))}
+                  <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-[#087F78] group-hover:translate-x-0.5 transition-all shrink-0 ml-2" />
+                </Link>
+              );
+            })}
           </div>
 
           {/* Subtle Divider */}

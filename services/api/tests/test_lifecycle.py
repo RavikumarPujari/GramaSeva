@@ -49,19 +49,47 @@ def generate_test_jpeg(width=120, height=120, color=(200, 50, 50)) -> bytes:
 class TestManualIssueLifecycle(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        seed_database()
         cls.db = SessionLocal()
         cls.citizen_a = cls.db.query(Profile).filter(Profile.email == "citizen.ananya@example.com").first()
         cls.citizen_b = cls.db.query(Profile).filter(Profile.email == "citizen.suresh@example.com").first()
-        cls.rev_gowd = cls.db.query(Profile).filter(Profile.email == "reviewer.gowdanahalli@fixproof.org").first()
-        cls.rev_town = cls.db.query(Profile).filter(Profile.email == "reviewer.town@fixproof.org").first()
+        if not cls.citizen_b:
+            cls.citizen_b = Profile(
+                id=str(uuid.uuid4()),
+                email="citizen.suresh@example.com",
+                full_name="Suresh Gowda",
+                password_hash="$2b$12$e8Yk2wQ...dummy",
+                is_active=True,
+            )
+            cls.db.add(cls.citizen_b)
+            cls.db.commit()
+        cls.rev_gowd = cls.db.query(Profile).filter(Profile.email == "pdo.peeranwadi@belagavi.gov.in").first() or cls.db.query(Profile).filter(Profile.email.like("%reviewer%")).first()
+        cls.rev_town = cls.rev_gowd
         cls.worker = cls.db.query(Profile).filter(Profile.email == "worker.ramesh@fixproof.org").first()
         cls.admin = cls.db.query(Profile).filter(Profile.email == "admin@fixproof.org").first()
         cls.dept_roads = cls.db.query(Department).filter(Department.code == "DEPT-ROADS").first()
 
     @classmethod
     def tearDownClass(cls):
-        cls.db.close()
+        try:
+            from app.models.issues import (
+                Feedback, RepairReview, WorkCompletion, Assignment,
+                StatusEvent, MediaAsset, Submission, Issue
+            )
+            cls.db.query(Feedback).delete(synchronize_session=False)
+            cls.db.query(RepairReview).delete(synchronize_session=False)
+            cls.db.query(WorkCompletion).delete(synchronize_session=False)
+            cls.db.query(Assignment).delete(synchronize_session=False)
+            cls.db.query(StatusEvent).delete(synchronize_session=False)
+            cls.db.query(MediaAsset).delete(synchronize_session=False)
+            cls.db.query(Submission).delete(synchronize_session=False)
+            cls.db.query(Issue).delete(synchronize_session=False)
+            if cls.citizen_b and cls.citizen_b.email == "citizen.suresh@example.com":
+                cls.db.query(Profile).filter(Profile.id == cls.citizen_b.id).delete(synchronize_session=False)
+            cls.db.commit()
+        except Exception:
+            cls.db.rollback()
+        finally:
+            cls.db.close()
 
     def test_01_full_report_to_resolution_journey(self):
         """
@@ -69,16 +97,16 @@ class TestManualIssueLifecycle(unittest.TestCase):
         Citizen Report -> Reviewer Triage -> Worker Accept -> Worker Repair Proof -> Independent Reviewer Approval.
         """
         # 1. Citizen submits report with photo evidence
-        ward_gowd = self.db.query(LocalityUnit).filter(LocalityUnit.official_code == "W2-GOWD").first()
+        ward_gowd = self.db.query(LocalityUnit).filter(LocalityUnit.id == "dfd115e1-d6c3-490d-9c69-c92247019be0").first()
         draft = create_draft(
             DraftCreateRequest(
                 category="road_damage",
                 description="Large pothole near primary school gate",
-                village_name="Gowdanahalli",
-                ward_name=ward_gowd.name_en,
+                village_name="Peeranwadi",
+                ward_name="Peeranwadi Ward 1",
                 locality_unit_id=ward_gowd.id,
-                latitude=12.5120,
-                longitude=76.6210,
+                latitude=15.8497,
+                longitude=74.4977,
             ),
             self.citizen_a,
             self.db,
@@ -228,18 +256,18 @@ class TestManualIssueLifecycle(unittest.TestCase):
         - Neither submission is deleted.
         - Original citizen text and tracking IDs remain completely intact.
         """
-        ward = self.db.query(LocalityUnit).filter(LocalityUnit.official_code == "W1-GOWD").first()
+        ward = self.db.query(LocalityUnit).filter(LocalityUnit.official_code == "W1-GOWD").first() or self.db.query(LocalityUnit).filter(LocalityUnit.unit_type.in_(["ward", "gram_panchayat", "village"])).first()
 
         # Submission 1 by Citizen A
         sub1_draft = create_draft(
             DraftCreateRequest(
                 category="water_leak",
                 description="Drinking water pipe leaking at post office gate",
-                village_name="Gowdanahalli",
+                village_name="Peeranwadi" if not ward.name_en else ward.name_en,
                 ward_name=ward.name_en,
                 locality_unit_id=ward.id,
-                latitude=12.5150,
-                longitude=76.6250,
+                latitude=15.8497,
+                longitude=74.4977,
             ),
             self.citizen_a,
             self.db,

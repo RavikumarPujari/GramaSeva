@@ -562,24 +562,24 @@ export default function PublicDashboardPage() {
                 <div className="w-12 h-12 rounded-2xl bg-teal-50 text-[#087F78] flex items-center justify-center mx-auto">
                   <CheckCircle2 className="w-6 h-6" />
                 </div>
-                <h3 className="text-base font-bold text-[#102B4E]">No complaints found matching criteria</h3>
+                <h3 className="text-base font-bold text-[#102B4E]">No public complaints available yet</h3>
                 <p className="text-xs text-[#40536B] max-w-md mx-auto">
-                  No complaints have been reported under {selectedVillage === "ALL" ? "Belagavi Taluk" : selectedVillage} with the current filter settings.
+                  Citizen-reported issues will appear here when eligible.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedVillage("ALL");
-                    setSelectedCategory("ALL");
-                    setSelectedStatus("ALL");
-                    setSelectedWard("ALL");
-                    setDateRange("all");
-                    setSearchQuery("");
-                  }}
-                  className="px-4 py-2 rounded-xl bg-[#087F78] text-white text-xs font-semibold hover:bg-[#066B65] transition-colors"
-                >
-                  Reset All Filters
-                </button>
+                {(selectedVillage !== "ALL" || selectedCategory !== "ALL" || selectedStatus !== "ALL" || searchQuery) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedVillage("ALL");
+                      setSelectedCategory("ALL");
+                      setSelectedStatus("ALL");
+                      setSearchQuery("");
+                    }}
+                    className="text-xs font-bold text-[#087F78] hover:underline pt-2 block mx-auto"
+                  >
+                    Reset all filters
+                  </button>
+                )}
               </div>
             )}
 
@@ -776,7 +776,18 @@ export default function PublicDashboardPage() {
             </div>
 
             {/* Gallery Cards Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {galleryItems.length === 0 ? (
+              <div className="bg-white rounded-3xl border border-[#DCE5EE] p-12 text-center space-y-3 shadow-2xs">
+                <div className="w-12 h-12 rounded-2xl bg-teal-50 text-[#087F78] flex items-center justify-center mx-auto">
+                  <ShieldCheck className="w-6 h-6" />
+                </div>
+                <h3 className="text-base font-bold text-[#102B4E]">No verified resolution records yet</h3>
+                <p className="text-xs text-[#40536B] max-w-md mx-auto">
+                  As field workers complete repairs and Village PDOs independently verify completion photographs, verified before-and-after work records will be showcased here.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {galleryItems
                 .filter((item) => galleryCategory === "ALL" || item.category === galleryCategory)
                 .map((item) => (
@@ -887,7 +898,8 @@ export default function PublicDashboardPage() {
                     </div>
                   </div>
                 ))}
-            </div>
+              </div>
+            )}
           </div>
         )}
 

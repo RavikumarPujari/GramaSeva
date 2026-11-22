@@ -309,48 +309,8 @@ export default function CitizenDashboard() {
           setSelectedComplaint(formatted[0]);
         }
       } else {
-        // Fallback demo complaints matching citizen records
-        const seedData: CitizenComplaint[] = [
-          {
-            id: "comp-1",
-            tracking_id: "GS-2026-07923",
-            category: "water_leak",
-            status: "IN_PROGRESS",
-            description: "Main drinking water pipe joint ruptured near the Peeranwadi Central Bus Stop, water pooling on asphalt.",
-            village_name: "Peeranwadi Gram Panchayat",
-            ward_name: "Ward 1 - Peeranwadi Central",
-            latitude: 15.8498,
-            longitude: 74.4979,
-            created_at: new Date(Date.now() - 86400000 * 1).toISOString(),
-          },
-          {
-            id: "comp-2",
-            tracking_id: "GS-2026-04118",
-            category: "streetlight",
-            status: "RESOLVED",
-            description: "LED streetlamp fixture flickering and non-operational for two weeks along Market Road entrance.",
-            village_name: "Mandoli Gram Panchayat",
-            ward_name: "Ward 2 - Market Road",
-            latitude: 15.8350,
-            longitude: 74.4820,
-            created_at: new Date(Date.now() - 86400000 * 4).toISOString(),
-            resolved_at: new Date(Date.now() - 86400000 * 1).toISOString(),
-          },
-          {
-            id: "comp-3",
-            tracking_id: "GS-2026-09214",
-            category: "road_damage",
-            status: "UNDER_REVIEW",
-            description: "Deep edge potholes after heavy rain near Post Office curve creating danger for two-wheelers.",
-            village_name: "Peeranwadi Gram Panchayat",
-            ward_name: "Ward 1 - Peeranwadi Central",
-            latitude: 15.8495,
-            longitude: 74.4975,
-            created_at: new Date(Date.now() - 3600000 * 6).toISOString(),
-          },
-        ];
-        setComplaints(seedData);
-        setSelectedComplaint(seedData[0]);
+        setComplaints([]);
+        setSelectedComplaint(null);
       }
     } catch {
       // Ignored

@@ -81,3 +81,13 @@ Thumbs.db
 /GRAMASEVA_MASTER_IMPLEMENTATION_ROADMAP.md
 /GRAMASEVA_PENDING_TASKS.md
 /PUBLIC_DASHBOARD_IMPLEMENTATION_PLAN.md
+
+# Temporary scratch and test files
+scratch/*
+!scratch/test_citizen_to_pdo_workflow.py
+
+# Database backups
+database/backups/*
+
+# Extra services storage
+services/storage/

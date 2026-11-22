@@ -29,7 +29,7 @@ class TestHealthAndMeta(unittest.TestCase):
         data = pilot_metadata()
         self.assertEqual(data["supported_locales"], ["en", "kn", "hi"])
         self.assertEqual(data["pilot_jurisdiction"]["state"], "Karnataka")
-        self.assertEqual(data["pilot_jurisdiction"]["district"], "Mandya")
+        self.assertEqual(data["pilot_jurisdiction"]["district"], "Belagavi District")
         self.assertGreaterEqual(len(data["supported_categories"]), 7)
         self.assertIn("RESOLVED", data["lifecycle_statuses"])
         self.assertIn("REPAIR_REPORTED", data["lifecycle_statuses"])

@@ -81,6 +81,7 @@ def root():
     }
 
 
+@app.get("/health", status_code=status.HTTP_200_OK)
 @app.get("/api/v1/health", status_code=status.HTTP_200_OK)
 def health_check():
     return {

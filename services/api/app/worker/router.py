@@ -196,6 +196,7 @@ def accept_assignment(
             reference_number=issue.reference_number,
             issue_id=issue.id,
             locale=s.locale,
+            custom_message="🔧 Field work has officially started on your complaint.",
             dedup_suffix=f"started-{asgn.id[:8]}",
         )
 
@@ -536,6 +537,20 @@ def submit_work_completion(
             dedup_suffix=f"comp-{completion.id[:8]}",
         )
 
+    # Notify reporting citizen(s) that work is completed and awaiting PDO verification
+    subs = db.query(Submission).filter(Submission.issue_id == issue.id).all()
+    for s in subs:
+        notification_service.send_notification(
+            db=db,
+            profile_id=s.reporter_id,
+            event_type="REPAIR_REPORTED",
+            reference_number=issue.reference_number,
+            issue_id=issue.id,
+            locale=s.locale,
+            custom_message="📸 The assigned worker has submitted completion evidence. Your complaint is now awaiting verification by the PDO.",
+            dedup_suffix=f"repair_sub-{completion.id[:8]}",
+        )
+
     return {
         "status": "awaiting_verification",
         "issue_id": issue.id,
@@ -701,6 +716,9 @@ class WorkerStatusResponse(BaseModel):
     assigned_tasks_count: int
     pending_tasks_count: int
     in_progress_tasks_count: int
+    awaiting_verification_count: int = 0
+    completed_tasks_count: int = 0
+    completion_rate: float = 0.0
 
 @router.get("/status", response_model=WorkerStatusResponse)
 def get_worker_approval_status(
@@ -736,6 +754,31 @@ def get_worker_approval_status(
         Assignment.status.in_(["ACCEPTED", "IN_PROGRESS"]),
     ).count()
 
+    # Rule: Worker cannot mark resolved, only PDO can mark RESOLVED!
+    # Awaiting verification = worker submitted completion, waiting for PDO audit
+    awaiting_cnt = (
+        db.query(Assignment)
+        .join(Issue, Assignment.issue_id == Issue.id)
+        .filter(
+            Assignment.worker_profile_id == current_worker.id,
+            Issue.status.in_(["AWAITING_VERIFICATION", "REPAIR_REPORTED"]),
+        )
+        .count()
+    )
+
+    # Completed = PDO verified and marked RESOLVED
+    completed_cnt = (
+        db.query(Assignment)
+        .join(Issue, Assignment.issue_id == Issue.id)
+        .filter(
+            Assignment.worker_profile_id == current_worker.id,
+            Issue.status == "RESOLVED",
+        )
+        .count()
+    )
+
+    completion_rate = round((completed_cnt / assigned_cnt * 100), 1) if assigned_cnt > 0 else 0.0
+
     return WorkerStatusResponse(
         worker_id=current_worker.id,
         full_name=current_worker.full_name,
@@ -746,6 +789,9 @@ def get_worker_approval_status(
         assigned_tasks_count=assigned_cnt,
         pending_tasks_count=pending_cnt,
         in_progress_tasks_count=in_progress_cnt,
+        awaiting_verification_count=awaiting_cnt,
+        completed_tasks_count=completed_cnt,
+        completion_rate=completion_rate,
     )
 
 @router.post("/issues/{issue_id}/progress-notes")
