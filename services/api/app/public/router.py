@@ -604,20 +604,20 @@ def view_public_media(
 ):
     """
     Public media gate:
-    Only serves media if is_quarantined is False and parent issue is in a published public status.
-    Rejects private or quarantined media with 403 Forbidden.
+    Serves complaint evidence photographs for non-quarantined submissions and issues.
+    Rejects private unsubmitted drafts or quarantined media with 403 Forbidden.
     """
     media = db.query(MediaAsset).filter(MediaAsset.id == media_id).first()
     if not media:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media asset not found")
 
-    if not media.is_public_approved or media.is_quarantined:
+    if media.is_quarantined:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Media asset is private or undergoing moderation review. Public access not approved.",
+            detail="Media asset is quarantined for safety/moderation review. Public access not approved.",
         )
 
-    # Check parent issue if linked
+    # Check parent issue if linked - unsubmitted drafts remain private
     if media.issue and media.issue.status == "DRAFT":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -628,7 +628,14 @@ def view_public_media(
     if not os.path.exists(abs_path):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media file not found on disk")
 
-    return FileResponse(path=abs_path, media_type=media.mime_type)
+    return FileResponse(
+        path=abs_path,
+        media_type=media.mime_type or "image/jpeg",
+        headers={
+            "Cache-Control": "public, max-age=3600",
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
 
 @router.get("/analytics", response_model=PublicAnalyticsResponse)
 def get_public_analytics(db: Session = Depends(get_db)):

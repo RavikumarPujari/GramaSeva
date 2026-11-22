@@ -427,10 +427,14 @@ export default function ReportProblemPage() {
       // Address components
       const addr = locationData.address;
       submitForm.append("confirmed_address", addr.formattedAddress);
-      if (addr.village && !addr.village.includes("Not available")) {
-        submitForm.append("detected_village", addr.village);
+      const effectiveVill = addr.village && !addr.village.includes("Not available") ? addr.village : (addr.gramPanchayat && !addr.gramPanchayat.includes("Not available") ? addr.gramPanchayat : "");
+      if (effectiveVill) {
+        submitForm.append("village_name", effectiveVill);
+        submitForm.append("confirmed_village", effectiveVill);
+        submitForm.append("detected_village", effectiveVill);
       }
       if (addr.taluk && !addr.taluk.includes("Not available")) {
+        submitForm.append("taluk_name", addr.taluk);
         submitForm.append("detected_taluk", addr.taluk);
       }
       if (addr.gramPanchayat && !addr.gramPanchayat.includes("Not available")) {

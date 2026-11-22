@@ -4,13 +4,15 @@ from datetime import datetime
 
 class TriageActionRequest(BaseModel):
     priority: str = Field(default="MEDIUM")  # LOW, MEDIUM, HIGH, CRITICAL
-    department_id: str
+    department_id: Optional[str] = None
     assigned_worker_id: Optional[str] = None
     corrected_category: Optional[str] = None
     corrected_ward_id: Optional[str] = None
     instructions: Optional[str] = None
     target_date: Optional[datetime] = None
     audit_reason: str = Field(default="Standard triage by authority reviewer")
+    decision: Optional[str] = None
+    notes: Optional[str] = None
 
 class DuplicateDecisionRequest(BaseModel):
     submission_id: str

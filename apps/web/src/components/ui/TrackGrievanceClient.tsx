@@ -71,6 +71,19 @@ const LIFECYCLE_STEPS = [
   { key: "RESOLVED", label: "Verified & Resolved" },
 ];
 
+function getMediaUrl(url?: string): string {
+  if (!url) return "";
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  const clean = url.startsWith("/") ? url : `/${url}`;
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    if (host === "localhost" || host === "127.0.0.1") {
+      return `http://127.0.0.1:8000${clean}`;
+    }
+  }
+  return clean;
+}
+
 export function TrackGrievanceClient({
   locale,
   initialId = "",
@@ -87,6 +100,10 @@ export function TrackGrievanceClient({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [beforeImgLoaded, setBeforeImgLoaded] = useState(false);
+  const [beforeImgError, setBeforeImgError] = useState(false);
+  const [afterImgLoaded, setAfterImgLoaded] = useState(false);
+  const [afterImgError, setAfterImgError] = useState(false);
 
   const fetchTracking = async (trackingRef: string) => {
     if (!trackingRef.trim()) return;
@@ -136,11 +153,12 @@ export function TrackGrievanceClient({
   };
 
   const getCurrentStepIndex = (status: string) => {
-    if (status === "RESOLVED") return 5;
-    if (status === "REPAIR_REPORTED" || status === "AWAITING_VERIFICATION") return 4;
-    if (status === "IN_PROGRESS") return 3;
-    if (status === "ASSIGNED") return 2;
-    if (status === "UNDER_REVIEW") return 1;
+    const s = (status || "").toUpperCase();
+    if (s === "RESOLVED") return 5;
+    if (s === "REPAIR_REPORTED" || s === "AWAITING_VERIFICATION") return 4;
+    if (s === "IN_PROGRESS") return 3;
+    if (s === "ASSIGNED") return 2;
+    if (s === "UNDER_REVIEW" || s === "APPROVED" || s === "CONFIRMED") return 1;
     return 0;
   };
 
@@ -319,15 +337,30 @@ export function TrackGrievanceClient({
                     <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 block">
                       Citizen Upload (Before)
                     </span>
-                    <div className="aspect-video bg-slate-200 rounded-xl overflow-hidden flex items-center justify-center">
-                      <img
-                        src={data.before_photos[0].view_url}
-                        alt="Issue Before Repair"
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          (e.target as HTMLElement).style.display = "none";
-                        }}
-                      />
+                    <div className="relative aspect-video bg-slate-200 rounded-xl overflow-hidden flex items-center justify-center">
+                      {!beforeImgLoaded && !beforeImgError && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-slate-100">
+                          <RefreshCw className="w-5 h-5 text-slate-400 animate-spin" />
+                        </div>
+                      )}
+                      {!beforeImgError ? (
+                        <img
+                          src={getMediaUrl(data.before_photos[0].view_url)}
+                          alt="Issue Before Repair"
+                          className={`w-full h-full object-cover transition-opacity duration-300 ${beforeImgLoaded ? "opacity-100" : "opacity-0"}`}
+                          onLoad={() => setBeforeImgLoaded(true)}
+                          onError={() => {
+                            setBeforeImgError(true);
+                            setBeforeImgLoaded(true);
+                          }}
+                        />
+                      ) : (
+                        <div className="p-4 text-center text-slate-400 space-y-1">
+                          <Camera className="w-6 h-6 mx-auto text-slate-300" />
+                          <p className="text-xs font-semibold">Evidence Photo Recorded</p>
+                          <p className="text-[10px] text-slate-400">Securely archived on server</p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -338,15 +371,29 @@ export function TrackGrievanceClient({
                     <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700 block">
                       Field Repair Proof (After)
                     </span>
-                    <div className="aspect-video bg-emerald-100 rounded-xl overflow-hidden flex items-center justify-center">
-                      <img
-                        src={data.after_photos[0].view_url}
-                        alt="Issue After Repair"
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          (e.target as HTMLElement).style.display = "none";
-                        }}
-                      />
+                    <div className="relative aspect-video bg-emerald-100 rounded-xl overflow-hidden flex items-center justify-center">
+                      {!afterImgLoaded && !afterImgError && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-emerald-50">
+                          <RefreshCw className="w-5 h-5 text-emerald-600 animate-spin" />
+                        </div>
+                      )}
+                      {!afterImgError ? (
+                        <img
+                          src={getMediaUrl(data.after_photos[0].view_url)}
+                          alt="Issue After Repair"
+                          className={`w-full h-full object-cover transition-opacity duration-300 ${afterImgLoaded ? "opacity-100" : "opacity-0"}`}
+                          onLoad={() => setAfterImgLoaded(true)}
+                          onError={() => {
+                            setAfterImgError(true);
+                            setAfterImgLoaded(true);
+                          }}
+                        />
+                      ) : (
+                        <div className="p-4 text-center text-emerald-700 space-y-1">
+                          <CheckCircle2 className="w-6 h-6 mx-auto text-emerald-600" />
+                          <p className="text-xs font-semibold">Repair Proof Verified</p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : (

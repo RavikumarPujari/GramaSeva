@@ -59,6 +59,18 @@ def calculate_haversine_distance(lat1: float, lon1: float, lat2: float, lon2: fl
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return round(R * c, 1)
 
+def find_issue_by_any_id(db: Session, identifier: str) -> Optional[Issue]:
+    """Finds Issue by Issue UUID, tracking reference (e.g. GS-2026-BEL-XXXX), or Submission UUID."""
+    if not identifier:
+        return None
+    clean = str(identifier).strip()
+    issue = db.query(Issue).filter((Issue.id == clean) | (Issue.reference_number == clean)).first()
+    if not issue:
+        sub = db.query(Submission).filter((Submission.id == clean) | (Submission.tracking_id == clean)).first()
+        if sub and sub.issue_id:
+            issue = db.query(Issue).filter(Issue.id == sub.issue_id).first()
+    return issue
+
 @router.get("/inbox", response_model=List[StaffInboxItem])
 def get_reviewer_inbox(
     status_filter: Optional[str] = Query(None),
@@ -189,6 +201,20 @@ def get_all_complaints(
     supporting filtering by Category, Village, Ward, Status, and Priority.
     """
     query = db.query(Issue).filter(Issue.status != "DRAFT")
+
+    # Scoped jurisdiction for reviewer
+    asgn = (
+        db.query(RoleAssignment)
+        .filter(RoleAssignment.profile_id == current_reviewer.id, RoleAssignment.is_active == True)
+        .first()
+    )
+    gp_id = asgn.jurisdiction_unit_id if asgn else None
+
+    if gp_id and "admin" not in [r.role for r in current_reviewer.role_assignments]:
+        child_ids = [r[0] for r in db.query(LocalityUnit.id).filter(LocalityUnit.parent_id == gp_id).all()]
+        sub_child_ids = [r[0] for r in db.query(LocalityUnit.id).filter(LocalityUnit.parent_id.in_(child_ids)).all()]
+        all_gp_unit_ids = set([gp_id] + child_ids + sub_child_ids)
+        query = query.filter((Issue.locality_unit_id.in_(all_gp_unit_ids)) | (Issue.locality_unit_id.is_(None)))
 
     if category and category != "ALL":
         query = query.filter(Issue.category == category)
@@ -369,6 +395,7 @@ def get_all_complaints(
 
     return results
 
+@router.post("/triage/{issue_id}")
 @router.post("/issues/{issue_id}/triage")
 def triage_issue(
     issue_id: str,
@@ -382,7 +409,7 @@ def triage_issue(
     - Sets official priority
     - Routes to configured department and assigns field worker
     """
-    issue = db.query(Issue).filter(Issue.id == issue_id).first()
+    issue = find_issue_by_any_id(db, issue_id)
     if not issue:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
 
@@ -394,6 +421,8 @@ def triage_issue(
         )
 
     prev_status = issue.status
+    audit_reason = req.audit_reason or req.notes or "Standard triage by authority reviewer"
+    instructions = req.instructions or req.notes or "Field maintenance and repair execution"
 
     # Category correction with audit note
     if req.corrected_category and req.corrected_category != issue.category:
@@ -402,7 +431,7 @@ def triage_issue(
             actor_profile_id=current_reviewer.id,
             previous_status=issue.status,
             next_status=issue.status,
-            reason=f"Category corrected from {issue.category} to {req.corrected_category}. Note: {req.audit_reason}",
+            reason=f"Category corrected from {issue.category} to {req.corrected_category}. Note: {audit_reason}",
         )
         db.add(event)
         issue.category = req.corrected_category
@@ -416,7 +445,7 @@ def triage_issue(
                 actor_profile_id=current_reviewer.id,
                 previous_status=issue.status,
                 next_status=issue.status,
-                reason=f"Ward assigned/corrected to {ward_unit.name_en}. Note: {req.audit_reason}",
+                reason=f"Ward assigned/corrected to {ward_unit.name_en}. Note: {audit_reason}",
             )
             db.add(event)
             issue.locality_unit_id = ward_unit.id
@@ -428,8 +457,12 @@ def triage_issue(
         )
 
     # Department and priority
-    issue.priority = req.priority
-    issue.department_id = req.department_id
+    dept_id = req.department_id
+    if not dept_id:
+        dept = db.query(Department).first()
+        dept_id = dept.id if dept else None
+    issue.priority = req.priority or issue.priority
+    issue.department_id = dept_id
 
     # Assignment to worker
     if req.assigned_worker_id:
@@ -453,10 +486,10 @@ def triage_issue(
 
         assignment = Assignment(
             issue_id=issue.id,
-            department_id=req.department_id,
+            department_id=dept_id,
             worker_profile_id=worker.id,
             assigned_by_id=current_reviewer.id,
-            instructions=req.instructions,
+            instructions=instructions,
             target_date=req.target_date,
             status="ASSIGNED",
         )
@@ -467,7 +500,7 @@ def triage_issue(
             actor_profile_id=current_reviewer.id,
             previous_status=prev_status,
             next_status="ASSIGNED",
-            reason=f"Assigned to approved worker {worker.full_name}. Priority: {req.priority}. Reason: {req.audit_reason}",
+            reason=f"Assigned to approved worker {worker.full_name}. Priority: {issue.priority}. Instructions: {instructions}",
         )
         db.add(status_event)
 
@@ -823,6 +856,20 @@ def get_all_complaints(
     """
     query = db.query(Issue).filter(Issue.status != "DRAFT")
 
+    # Scoped jurisdiction for reviewer
+    asgn = (
+        db.query(RoleAssignment)
+        .filter(RoleAssignment.profile_id == current_reviewer.id, RoleAssignment.is_active == True)
+        .first()
+    )
+    gp_id = asgn.jurisdiction_unit_id if asgn else None
+
+    if gp_id and "admin" not in [r.role for r in current_reviewer.role_assignments]:
+        child_ids = [r[0] for r in db.query(LocalityUnit.id).filter(LocalityUnit.parent_id == gp_id).all()]
+        sub_child_ids = [r[0] for r in db.query(LocalityUnit.id).filter(LocalityUnit.parent_id.in_(child_ids)).all()]
+        all_gp_unit_ids = set([gp_id] + child_ids + sub_child_ids)
+        query = query.filter((Issue.locality_unit_id.in_(all_gp_unit_ids)) | (Issue.locality_unit_id.is_(None)))
+
     if category and category != "ALL":
         query = query.filter(Issue.category == category)
     if status_filter and status_filter != "ALL":
@@ -1014,7 +1061,7 @@ def review_resolution(
     Enforces separation-of-duty: worker cannot approve their own repair.
     Approves or requests better evidence.
     """
-    issue = db.query(Issue).filter(Issue.id == issue_id).first()
+    issue = find_issue_by_any_id(db, issue_id)
     if not issue:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
 
@@ -1178,7 +1225,7 @@ def request_issue_information(
     current_reviewer: Profile = Depends(require_roles("reviewer", "admin")),
     db: Session = Depends(get_db),
 ):
-    issue = db.query(Issue).filter(Issue.id == issue_id).first()
+    issue = find_issue_by_any_id(db, issue_id)
     if not issue:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
 
@@ -1223,7 +1270,7 @@ def reject_issue(
     current_reviewer: Profile = Depends(require_roles("reviewer", "admin")),
     db: Session = Depends(get_db),
 ):
-    issue = db.query(Issue).filter(Issue.id == issue_id).first()
+    issue = find_issue_by_any_id(db, issue_id)
     if not issue:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
 
@@ -1263,30 +1310,29 @@ def reject_issue(
 
 
 @router.post("/issues/{issue_id}/confirm")
+@router.post("/issues/{issue_id}/accept")
 def confirm_issue(
     issue_id: str,
     req: ConfirmIssueRequest = ConfirmIssueRequest(),
     current_reviewer: Profile = Depends(require_roles("reviewer", "admin")),
     db: Session = Depends(get_db),
 ):
-    issue = db.query(Issue).filter(Issue.id == issue_id).first()
+    issue = find_issue_by_any_id(db, issue_id)
     if not issue:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
 
     prev_status = issue.status
-    issue.status = "APPROVED"
+    issue.status = "UNDER_REVIEW"
 
     event = StatusEvent(
         issue_id=issue.id,
         actor_profile_id=current_reviewer.id,
         previous_status=prev_status,
-        next_status="APPROVED",
-        reason=f"Complaint accepted and approved by {current_reviewer.full_name}. {req.reason or ''}",
+        next_status="UNDER_REVIEW",
+        reason=f"Complaint accepted and verified by Panchayat Development Officer (PDO). {req.reason or ''}".strip(),
     )
     db.add(event)
     db.commit()
-
-    return {"status": "success", "issue_id": issue.id, "new_status": issue.status}
 
     return {"status": "success", "issue_id": issue.id, "new_status": issue.status}
 
@@ -1626,6 +1672,8 @@ class VillageMapPoint(BaseModel):
     description: Optional[str] = None
     assigned_worker_name: Optional[str] = None
     submitted_at: str
+    village_name: Optional[str] = None
+    gps_accuracy: Optional[float] = None
 
 class VillageMapResponse(BaseModel):
     village_id: Optional[str] = None
@@ -1909,9 +1957,10 @@ def get_pdo_village_map(
     )
 
     if gp_id and "admin" not in [r.role for r in current_reviewer.role_assignments]:
-        query = query.filter(Issue.locality_unit_id == gp_id)
-    elif not gp_id and "admin" not in [r.role for r in current_reviewer.role_assignments]:
-        query = query.filter(Issue.id == "__none__")
+        child_ids = [r[0] for r in db.query(LocalityUnit.id).filter(LocalityUnit.parent_id == gp_id).all()]
+        sub_child_ids = [r[0] for r in db.query(LocalityUnit.id).filter(LocalityUnit.parent_id.in_(child_ids)).all()]
+        all_gp_unit_ids = set([gp_id] + child_ids + sub_child_ids)
+        query = query.filter((Issue.locality_unit_id.in_(all_gp_unit_ids)) | (Issue.locality_unit_id.is_(None)))
 
     if category and category != "ALL":
         query = query.filter(Issue.category == category)
@@ -1930,6 +1979,7 @@ def get_pdo_village_map(
 
         worker_name = issue.assigned_worker.full_name if issue.assigned_worker else None
 
+        v_name = (sub.village_name if sub else None) or (issue.locality_unit.name_en if issue.locality_unit else None) or gp_name
         points.append(
             VillageMapPoint(
                 id=issue.id,
@@ -1943,6 +1993,8 @@ def get_pdo_village_map(
                 description=sub.description if sub else None,
                 assigned_worker_name=worker_name,
                 submitted_at=issue.created_at.isoformat() if issue.created_at else datetime.now(timezone.utc).isoformat(),
+                village_name=v_name,
+                gps_accuracy=sub.gps_accuracy if sub else None,
             )
         )
 

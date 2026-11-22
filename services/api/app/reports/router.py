@@ -92,6 +92,7 @@ def build_report_response(submission: Submission, issue: Optional[Issue], db: Se
 
     return ReportResponse(
         id=submission.id,
+        issue_id=issue.id if issue else submission.issue_id,
         tracking_id=submission.tracking_id,
         category=submission.category,
         description=submission.description,
@@ -697,12 +698,40 @@ async def submit_report_atomic(
 
     # 3. Resolve Locality Unit
     locality_unit_id = None
-    if village_name:
+    target_vill = confirmed_village or village_name or detected_village or detected_gram_panchayat
+    if target_vill:
         loc = db.query(LocalityUnit).filter(
-            LocalityUnit.name_en.ilike(f"%{village_name}%")
+            (LocalityUnit.name_en.ilike(f"%{target_vill}%")) |
+            (LocalityUnit.name_kn.ilike(f"%{target_vill}%"))
         ).first()
         if loc:
             locality_unit_id = loc.id
+
+    # If still not resolved, resolve from coordinates against verified Belagavi pilot villages
+    if not locality_unit_id and (confirmed_latitude or latitude) and (confirmed_longitude or longitude):
+        try:
+            from app.localities.router import _resolve_coordinates
+            resolved = _resolve_coordinates(confirmed_latitude or latitude, confirmed_longitude or longitude, db)
+            if resolved and resolved.locality_unit_id:
+                locality_unit_id = resolved.locality_unit_id
+                if not confirmed_village and resolved.village_name:
+                    confirmed_village = resolved.village_name
+        except Exception as e:
+            print("Locality coordinate resolution notice:", e)
+
+    # Fallback to default Belagavi Gram Panchayat (Peeranwadi or first available GP)
+    if not locality_unit_id:
+        def_gp = db.query(LocalityUnit).filter(LocalityUnit.name_en.ilike("%Peeranwadi%")).first()
+        if not def_gp:
+            def_gp = db.query(LocalityUnit).filter(LocalityUnit.unit_type.in_(["gram_panchayat", "village"])).first()
+        if def_gp:
+            locality_unit_id = def_gp.id
+
+    effective_village = confirmed_village or village_name or detected_village
+    if not effective_village and locality_unit_id:
+        lu = db.query(LocalityUnit).filter(LocalityUnit.id == locality_unit_id).first()
+        if lu:
+            effective_village = lu.name_en
 
     # 4. Generate Unique Tracking ID
     tracking_id = generate_tracking_id(db)
@@ -740,7 +769,7 @@ async def submit_report_atomic(
         locale="en",
         original_text=full_desc,
         locality_unit_id=locality_unit_id,
-        village_name=confirmed_village or village_name,
+        village_name=effective_village,
         ward_name=ward_name,
         taluk_name=taluk_name or "Belagavi Taluk",
         latitude=latitude,
@@ -814,7 +843,7 @@ async def submit_report_atomic(
         mime_type=mime_type,
         file_size_bytes=size_bytes,
         is_quarantined=False,
-        is_public_approved=False,
+        is_public_approved=True,
     )
     db.add(media)
 

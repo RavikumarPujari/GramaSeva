@@ -32,6 +32,18 @@ except Exception:
 
 router = APIRouter(prefix="/worker", tags=["Field Worker Operations"])
 
+def find_issue_by_any_id(db: Session, identifier: str) -> Optional[Issue]:
+    """Finds Issue by Issue UUID, tracking reference (e.g. GS-2026-BEL-XXXX), or Submission UUID."""
+    if not identifier:
+        return None
+    clean = str(identifier).strip()
+    issue = db.query(Issue).filter((Issue.id == clean) | (Issue.reference_number == clean)).first()
+    if not issue:
+        sub = db.query(Submission).filter((Submission.id == clean) | (Submission.tracking_id == clean)).first()
+        if sub and sub.issue_id:
+            issue = db.query(Issue).filter(Issue.id == sub.issue_id).first()
+    return issue
+
 class WorkerTaskItem(BaseModel):
     assignment_id: str
     issue_id: str
@@ -244,7 +256,7 @@ async def upload_repair_evidence(
     db: Session = Depends(get_db),
 ):
     """Worker uploads photo proof of completed repair work (WORKER_AFTER)."""
-    issue = db.query(Issue).filter(Issue.id == issue_id).first()
+    issue = find_issue_by_any_id(db, issue_id)
     if not issue:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
 
@@ -286,7 +298,7 @@ def submit_work_completion(
     STRICT GOVERNANCE RULE: Field workers CANNOT mark issues resolved or approve their own costs.
     Moves status to REPAIR_REPORTED ("Awaiting Verification") and runs advisory AI comparison.
     """
-    issue = db.query(Issue).filter(Issue.id == issue_id).first()
+    issue = find_issue_by_any_id(db, issue_id)
     if not issue:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
 
@@ -580,7 +592,7 @@ def request_resolution_review(
     Submits completed work for independent review.
     README Rule: Worker cannot approve their own work. Status moves to REPAIR_REPORTED.
     """
-    issue = db.query(Issue).filter(Issue.id == issue_id).first()
+    issue = find_issue_by_any_id(db, issue_id)
     if not issue:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
 
@@ -639,7 +651,7 @@ def escalate_task(
     """
     Worker reports that access is blocked, parts are unavailable, or work needs operational escalation (README 4.4, 5.2).
     """
-    issue = db.query(Issue).filter(Issue.id == issue_id).first()
+    issue = find_issue_by_any_id(db, issue_id)
     if not issue:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
 
@@ -744,7 +756,7 @@ def add_worker_progress_note(
     db: Session = Depends(get_db),
 ):
     """Worker logs an interim work progress update."""
-    issue = db.query(Issue).filter(Issue.id == issue_id).first()
+    issue = find_issue_by_any_id(db, issue_id)
     if not issue:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
 

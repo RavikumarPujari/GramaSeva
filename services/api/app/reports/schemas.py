@@ -164,6 +164,7 @@ class CheckDuplicatesRequest(BaseModel):
 
 class ReportResponse(BaseModel):
     id: str
+    issue_id: Optional[str] = None
     tracking_id: str
     category: str
     description: Optional[str] = None

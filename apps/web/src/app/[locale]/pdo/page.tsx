@@ -47,7 +47,7 @@ import {
   Mic,
 } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
-import { LeafletMap, MapComplaint } from "@/components/ui/LeafletMap";
+import { PdoGoogleMap, PdoMapComplaint } from "@/components/ui/PdoGoogleMap";
 import { LanguageSelector } from "@/components/ui/LanguageSelector";
 import { GramaSevaLogo } from "@/components/ui/GramaSevaLogo";
 
@@ -242,7 +242,7 @@ export default function VillagePdoDashboard() {
   const [workers, setWorkers] = useState<WorkerRecord[]>([]);
   const [wards, setWards] = useState<WardData[]>([]);
   const [notifications, setNotifications] = useState<PdoNotification[]>([]);
-  const [mapData, setMapData] = useState<{ boundary: any; complaints: MapComplaint[] }>({
+  const [mapData, setMapData] = useState<{ boundary: any; complaints: PdoMapComplaint[] }>({
     boundary: null,
     complaints: [],
   });
@@ -380,7 +380,8 @@ export default function VillagePdoDashboard() {
         assigned_worker_id: assignWorkerId,
         priority: assignPriority,
         target_date: assignTargetDate ? new Date(assignTargetDate).toISOString() : undefined,
-        notes: `Assigned by Village PDO for GP execution.`,
+        instructions: `Assigned by Village PDO for GP execution.`,
+        audit_reason: `Official dispatch by Village PDO`,
       });
       setNotice(`Complaint ${selectedComplaint.reference_number || selectedComplaint.id} dispatched to field worker.`);
       setShowAssignModal(false);
@@ -397,8 +398,8 @@ export default function VillagePdoDashboard() {
     setIsProcessingAction(true);
     try {
       await apiClient.post(`/staff/issues/${selectedComplaint.id}/confirm`);
-      setNotice(`Complaint ${selectedComplaint.reference_number || selectedComplaint.id} has been APPROVED. You may now assign a field worker.`);
-      setSelectedComplaint((prev) => (prev ? { ...prev, status: "APPROVED" } : null));
+      setNotice(`Complaint ${selectedComplaint.reference_number || selectedComplaint.id} has been accepted and marked UNDER REVIEW.`);
+      setSelectedComplaint((prev) => (prev ? { ...prev, status: "UNDER_REVIEW" } : null));
       loadPdoData();
     } catch (err: any) {
       setError(err.message || "Failed to approve complaint");
@@ -1260,9 +1261,8 @@ export default function VillagePdoDashboard() {
                 </span>
               </div>
 
-              <LeafletMap
+              <PdoGoogleMap
                 height="600px"
-                boundaryGeoJson={mapData.boundary}
                 complaints={mapData.complaints}
                 selectedComplaintId={selectedComplaint?.id}
                 onSelectComplaint={(c) => {
