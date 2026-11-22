@@ -31,6 +31,9 @@ import {
   Clock,
   Printer,
   Award,
+  Edit,
+  Globe,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -80,11 +83,11 @@ export default function ReportProblemPage() {
   const locale = useLocale();
 
   // Workflow Stages (Exact Six Steps):
-  // 1: Photo
-  // 2: Location
-  // 3: Details
+  // 1: Photo & Citizen Details
+  // 2: Location & Google Maps
+  // 3: Details & Language
   // 4: AI Analysis
-  // 5: Match
+  // 5: Match (Duplicates)
   // 6: Confirm
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [trackingId, setTrackingId] = useState<string | null>(null);
@@ -92,11 +95,13 @@ export default function ReportProblemPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState(false);
 
-  // Authenticated user state
+  // PHASE 2: Citizen Details & Authentication state
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [accountId, setAccountId] = useState<string | null>(null);
   const [citizenName, setCitizenName] = useState<string>("");
   const [citizenPhone, setCitizenPhone] = useState<string>("");
 
-  // STEP 1: Photo State
+  // PHASE 3.1: Image Upload State
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -105,9 +110,14 @@ export default function ReportProblemPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
 
-  // STEP 2: Location State
+  // PHASE 3.2 - 3.4: Location State
   const [locationData, setLocationData] = useState<LocationPickerChangeData | null>(null);
   const [isLocationConfirmed, setIsLocationConfirmed] = useState(false);
+
+  // PHASE 4: Language Selection
+  const [selectedLanguage, setSelectedLanguage] = useState<"kn" | "en" | "hi">(
+    locale === "kn" ? "kn" : locale === "hi" ? "hi" : "en"
+  );
 
   // STEP 3: Details State
   const [issueTitle, setIssueTitle] = useState<string>("");
@@ -119,7 +129,7 @@ export default function ReportProblemPage() {
   const [isRecording, setIsRecording] = useState(false);
   const recognitionRef = useRef<any>(null);
 
-  // STEP 4: AI Analysis State (Gemini Multimodal Vision)
+  // STEP 4: AI Analysis State (Gemini Multimodal Vision + Specialist Models)
   const [isAiAnalyzing, setIsAiAnalyzing] = useState(false);
   const [aiPredictedCategory, setAiPredictedCategory] = useState<string>("road_damage");
   const [aiConfidenceScore, setAiConfidenceScore] = useState<number | null>(null);
@@ -127,6 +137,7 @@ export default function ReportProblemPage() {
   const [aiOcrText, setAiOcrText] = useState<string | null>(null);
   const [aiSeverity, setAiSeverity] = useState<string>("MEDIUM");
   const [hasAiRun, setHasAiRun] = useState(false);
+  const [aiAnalysisError, setAiAnalysisError] = useState<string | null>(null);
 
   // STEP 5: Match State (Duplicate Suggestions)
   const [isCheckingDuplicates, setIsCheckingDuplicates] = useState(false);
@@ -134,25 +145,38 @@ export default function ReportProblemPage() {
   const [duplicateChoice, setDuplicateChoice] = useState<"separate" | "same">("separate");
   const [selectedDuplicateRef, setSelectedDuplicateRef] = useState<string | null>(null);
 
-  // Load authenticated citizen profile on mount
+  // Indian Mobile Number Validation Regex (10 digits starting with 6, 7, 8, or 9)
+  const validateIndianPhone = (phone: string): boolean => {
+    const clean = phone.replace(/^(\+91|91)/, "").replace(/[\s-]/g, "").trim();
+    return /^[6-9]\d{9}$/.test(clean);
+  };
+
+  // Load authenticated citizen profile on mount (PHASE 2)
   useEffect(() => {
     async function loadProfile() {
       const token =
         typeof window !== "undefined"
           ? localStorage.getItem("gramaseva_token") || localStorage.getItem("access_token")
           : null;
-      if (!token) return;
+      if (!token) {
+        setIsAuthenticated(false);
+        return;
+      }
 
       try {
         const res = await apiClient.get<any>("/citizen/profile");
-        if (res) {
+        if (res && (res.id || res.full_name || res.email)) {
+          setIsAuthenticated(true);
+          if (res.id) setAccountId(res.id);
           if (res.full_name) setCitizenName(res.full_name);
           else if (res.name) setCitizenName(res.name);
           if (res.phone_number) setCitizenPhone(res.phone_number);
           else if (res.phone) setCitizenPhone(res.phone);
+        } else {
+          setIsAuthenticated(false);
         }
       } catch {
-        // Unauthenticated or profile fetch skipped
+        setIsAuthenticated(false);
       }
     }
     loadProfile();
@@ -167,7 +191,12 @@ export default function ReportProblemPage() {
         const rec = new SpeechRecognition();
         rec.continuous = true;
         rec.interimResults = true;
-        rec.lang = locale === "kn" ? "kn-IN" : "en-IN";
+        rec.lang =
+          selectedLanguage === "kn"
+            ? "kn-IN"
+            : selectedLanguage === "hi"
+            ? "hi-IN"
+            : "en-IN";
 
         rec.onresult = (event: any) => {
           let transcript = "";
@@ -185,9 +214,9 @@ export default function ReportProblemPage() {
         recognitionRef.current = rec;
       }
     }
-  }, [locale]);
+  }, [selectedLanguage]);
 
-  // Camera Controls
+  // Camera Controls (PHASE 3.1)
   const startCamera = async () => {
     try {
       setIsCameraOpen(true);
@@ -220,18 +249,18 @@ export default function ReportProblemPage() {
     canvas.width = videoRef.current.videoWidth || 640;
     canvas.height = videoRef.current.videoHeight || 480;
     const ctx = canvas.getContext("2d");
-    if (ctx) {
-      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-      canvas.toBlob((blob) => {
-        if (blob) {
-          const file = new File([blob], `civic_evidence_${Date.now()}.jpg`, { type: "image/jpeg" });
-          setSelectedFile(file);
-          setPreviewUrl(URL.createObjectURL(file));
-          stopCamera();
-          triggerGeminiAnalysis(file);
-        }
-      }, "image/jpeg", 0.92);
-    }
+    if (!ctx) return;
+    ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const file = new File([blob], `evidence_${Date.now()}.jpg`, { type: "image/jpeg" });
+        setSelectedFile(file);
+        setPreviewUrl(URL.createObjectURL(file));
+        setErrorMessage(null);
+        stopCamera();
+      }
+    }, "image/jpeg", 0.9);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -250,20 +279,23 @@ export default function ReportProblemPage() {
     setSelectedFile(file);
     setPreviewUrl(URL.createObjectURL(file));
     setErrorMessage(null);
-
-    // Trigger Gemini multimodal analysis in background
-    triggerGeminiAnalysis(file);
   };
 
-  // Gemini Vision AI Multimodal Analysis (Step 4 preparation)
-  const triggerGeminiAnalysis = async (file: File) => {
+  // Gemini Vision AI Multimodal Analysis (PHASE 4)
+  const triggerGeminiAnalysis = async (file: File, langOverride?: "kn" | "en" | "hi") => {
     setIsAiAnalyzing(true);
     setHasAiRun(true);
+    setAiAnalysisError(null);
+    const lang = langOverride || selectedLanguage;
     try {
       const formData = new FormData();
       formData.append("file", file);
+      formData.append("locale", lang);
+      if (locationData?.address?.village && !locationData.address.village.includes("not identified")) {
+        formData.append("village_name", locationData.address.village);
+      }
 
-      const geminiRes = await apiClient.postForm<any>("/ai/gemini/analyze-problem", formData).catch(() => null);
+      const geminiRes = await apiClient.postForm<any>("/ai/gemini/analyze-problem", formData);
       if (geminiRes) {
         if (geminiRes.suggested_category) {
           setAiPredictedCategory(geminiRes.suggested_category);
@@ -271,32 +303,24 @@ export default function ReportProblemPage() {
         }
         if (geminiRes.confidence) setAiConfidenceScore(geminiRes.confidence);
         if (geminiRes.visual_summary) setAiDefectLabel(geminiRes.visual_summary);
-        if (geminiRes.title && !issueTitle) setIssueTitle(geminiRes.title);
-        if (geminiRes.description && !activeDescription) setActiveDescription(geminiRes.description);
-        if (geminiRes.ocr_text) setAiOcrText(geminiRes.ocr_text);
-        if (geminiRes.severity) setAiSeverity(geminiRes.severity.toUpperCase());
-      } else {
-        // Fallback to Roboflow/CV endpoint
-        const cvRes = await apiClient.postForm<any>("/ai/analyze-complaint", formData).catch(() => null);
-        if (cvRes) {
-          if (cvRes.predicted_category) {
-            setAiPredictedCategory(cvRes.predicted_category);
-            setActiveCategory(cvRes.predicted_category);
-          }
-          if (cvRes.confidence_score) setAiConfidenceScore(cvRes.confidence_score);
-          if (cvRes.defect_label) setAiDefectLabel(cvRes.defect_label);
-          if (cvRes.issue_title && !issueTitle) setIssueTitle(cvRes.issue_title);
-          if (cvRes.ai_description && !activeDescription) setActiveDescription(cvRes.ai_description);
+        if (geminiRes.title) setIssueTitle(geminiRes.title);
+        if (geminiRes.description) setActiveDescription(geminiRes.description);
+        if (geminiRes.ocr_text) {
+          setAiOcrText(Array.isArray(geminiRes.ocr_text) ? geminiRes.ocr_text.join(", ") : geminiRes.ocr_text);
         }
+        if (geminiRes.severity) setAiSeverity(geminiRes.severity.toUpperCase());
       }
-    } catch (err) {
-      console.warn("AI analysis note:", err);
+    } catch (err: any) {
+      console.warn("AI analysis error:", err);
+      setAiAnalysisError(
+        err?.message || "AI Vision model temporarily unavailable. You can enter complaint details manually."
+      );
     } finally {
       setIsAiAnalyzing(false);
     }
   };
 
-  // Step 5: Duplicate Complaint Matching
+  // Step 5: Duplicate Complaint Matching (PHASE 5)
   const runDuplicateMatching = async () => {
     setIsCheckingDuplicates(true);
     try {
@@ -304,9 +328,10 @@ export default function ReportProblemPage() {
         category: activeCategory,
         latitude: locationData?.lat,
         longitude: locationData?.lon,
-        description: activeDescription,
-        max_radius: 1000.0,
+        threshold_meters: 1000,
+        similarity_threshold: 0.5,
       };
+
       const res = await apiClient.post<DuplicateSuggestionItem[]>("/reports/check-duplicates", payload);
       if (Array.isArray(res)) {
         setDuplicateMatches(res);
@@ -314,32 +339,29 @@ export default function ReportProblemPage() {
         setDuplicateMatches([]);
       }
     } catch (err) {
-      console.warn("Duplicate matching check notice:", err);
+      console.warn("Duplicate matching note:", err);
       setDuplicateMatches([]);
     } finally {
       setIsCheckingDuplicates(false);
     }
   };
 
-  // Voice Recording Toggle
-  const toggleRecording = () => {
-    if (isRecording) {
-      recognitionRef.current?.stop();
-      setIsRecording(false);
-    } else {
-      try {
-        recognitionRef.current?.start();
-        setIsRecording(true);
-      } catch (e) {
-        console.warn("Mic error:", e);
-      }
-    }
-  };
-
-  // Final Atomic Submission
+  // Final Atomic Submission (PHASE 7)
   const handleSubmitComplaint = async () => {
     if (!selectedFile) {
-      setErrorMessage("Please select or upload a photograph.");
+      setErrorMessage("Please capture or upload an evidence photograph.");
+      setCurrentStep(1);
+      return;
+    }
+
+    if (!citizenName.trim()) {
+      setErrorMessage("Please enter your name.");
+      setCurrentStep(1);
+      return;
+    }
+
+    if (!isAuthenticated && !validateIndianPhone(citizenPhone)) {
+      setErrorMessage("Please enter a valid 10-digit Indian mobile number (e.g. 9876543210).");
       setCurrentStep(1);
       return;
     }
@@ -380,12 +402,11 @@ export default function ReportProblemPage() {
       if (additionalLandmark.trim()) {
         submitForm.append("landmark", additionalLandmark.trim());
       }
-      if (citizenName.trim()) {
-        submitForm.append("citizen_name", citizenName.trim());
-      }
+      submitForm.append("citizen_name", citizenName.trim());
       if (citizenPhone.trim()) {
         submitForm.append("citizen_phone", citizenPhone.trim());
       }
+      submitForm.append("is_guest", (!isAuthenticated).toString());
 
       // Original GPS coordinates
       const origLat = locationData.originalGpsLat ?? locationData.lat;
@@ -397,7 +418,7 @@ export default function ReportProblemPage() {
       }
       submitForm.append("location_method", locationData.method);
 
-      // Citizen-Confirmed / Adjusted Coordinates
+      // Citizen-Confirmed Coordinates
       submitForm.append("confirmed_latitude", locationData.lat.toString());
       submitForm.append("confirmed_longitude", locationData.lon.toString());
       submitForm.append("confirmation_method", "CITIZEN_CONFIRMED");
@@ -426,7 +447,8 @@ export default function ReportProblemPage() {
       if (addr.placeId) submitForm.append("google_place_id", addr.placeId);
       submitForm.append("geocoding_status", addr.geocodingStatus || "OK");
 
-      // AI Metadata
+      // AI Metadata & Language
+      submitForm.append("selected_language", selectedLanguage);
       if (aiPredictedCategory) submitForm.append("ai_category_suggestion", aiPredictedCategory);
       if (aiConfidenceScore) submitForm.append("ai_confidence", aiConfidenceScore.toString());
       if (aiSeverity) submitForm.append("severity", aiSeverity);
@@ -462,9 +484,9 @@ export default function ReportProblemPage() {
   };
 
   const stepsList = [
-    { number: 1, title: "Photo" },
+    { number: 1, title: "Citizen & Photo" },
     { number: 2, title: "Location" },
-    { number: 3, title: "Details" },
+    { number: 3, title: "Details & Language" },
     { number: 4, title: "AI Analysis" },
     { number: 5, title: "Match" },
     { number: 6, title: "Confirm" },
@@ -482,11 +504,11 @@ export default function ReportProblemPage() {
             Report a Civic Problem
           </h1>
           <p className="text-xs sm:text-sm text-slate-600 max-w-xl mx-auto">
-            Report civic defects in your Gram Panchayat. Follow the 6-step reporting wizard for verified GPS location, AI analysis, and real-time tracking.
+            Report civic defects in your Gram Panchayat. Follow the verified 6-step reporting wizard for live Google Maps GPS location, AI analysis, and real-time tracking.
           </p>
         </div>
 
-        {/* Six-Step Workflow Progress Stepper (Always visible before final confirmation) */}
+        {/* Six-Step Workflow Progress Stepper */}
         {!trackingId && (
           <div className="rounded-2xl border border-slate-200 bg-white p-3 sm:p-4 shadow-xs">
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center text-xs font-bold">
@@ -498,7 +520,6 @@ export default function ReportProblemPage() {
                     key={step.number}
                     type="button"
                     onClick={() => {
-                      // Allow navigating back to completed steps
                       if (step.number < currentStep) {
                         setCurrentStep(step.number);
                       }
@@ -537,165 +558,262 @@ export default function ReportProblemPage() {
         )}
 
         {/* =========================================================================
-            STEP 1: PHOTO — CAPTURE OR UPLOAD A PHOTOGRAPH
+            STEP 1: CITIZEN DETAILS & EVIDENCE PHOTO (PHASE 2 & PHASE 3.1)
            ========================================================================= */}
         {!trackingId && currentStep === 1 && (
           <Card className="p-6 sm:p-8 space-y-6 rounded-3xl border-slate-200 shadow-sm bg-white">
-            <div className="text-center space-y-1">
+            <div className="border-b border-slate-100 pb-4">
               <h2 className="text-lg font-bold text-[#062B46]">
-                Step 1: Capture or Upload a Photograph
+                Step 1: Citizen Contact & Problem Evidence
               </h2>
               <p className="text-xs text-slate-500">
-                A clear photo helps the AI and public works team assess the defect and dispatch the right repair crew.
+                Provide your contact details so the Village PDO can communicate updates, and capture or upload an evidence photo.
               </p>
             </div>
 
-            {/* Photo Upload / Capture Box */}
-            {!previewUrl ? (
-              <div className="space-y-4">
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-teal-300 hover:border-teal-500 rounded-2xl p-8 sm:p-12 text-center bg-teal-50/30 hover:bg-teal-50/60 transition-all cursor-pointer flex flex-col items-center justify-center gap-3"
-                >
-                  <div className="h-16 w-16 rounded-full bg-teal-100 text-[#087F78] flex items-center justify-center shadow-xs">
-                    <Upload className="h-8 w-8" />
+            {/* PHASE 2: Citizen Details Section */}
+            <div className="rounded-2xl border border-teal-200/80 bg-gradient-to-r from-teal-50/50 to-blue-50/40 p-4 sm:p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-[#062B46] flex items-center gap-1.5">
+                  <User className="h-4 w-4 text-[#087F78]" />
+                  <span>Citizen Contact Details</span>
+                </span>
+                {isAuthenticated ? (
+                  <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 text-[10px] font-bold">
+                    Authenticated Citizen Account ✓
+                  </Badge>
+                ) : (
+                  <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-[10px] font-bold">
+                    Guest Reporting (No Registration Required)
+                  </Badge>
+                )}
+              </div>
+
+              {isAuthenticated ? (
+                /* Authenticated Confirmation Card */
+                <div className="bg-white rounded-xl p-3.5 border border-teal-200/70 text-xs space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-slate-500">Citizen Name:</span>{" "}
+                      <strong className="text-slate-900">{citizenName}</strong>
+                    </div>
+                    {accountId && (
+                      <span className="text-[10px] font-mono text-slate-400">ID: {accountId.slice(0, 8)}...</span>
+                    )}
                   </div>
                   <div>
-                    <p className="font-bold text-[#062B46] text-sm sm:text-base">
-                      Click to Browse or Drag Photograph Here
-                    </p>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Supports JPEG, PNG, WebP up to 10 MB
-                    </p>
+                    <span className="text-slate-500">Mobile Number:</span>{" "}
+                    <strong className="text-slate-900">{citizenPhone || "Verified"}</strong>
+                  </div>
+                  <p className="text-[11px] text-emerald-700 font-medium pt-1">
+                    ✓ Your contact information is confirmed from your profile. No need to register again.
+                  </p>
+                </div>
+              ) : (
+                /* Guest Reporting Input Card */
+                <div className="space-y-3 text-xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Full Name *
+                      </label>
+                      <Input
+                        value={citizenName}
+                        onChange={(e) => setCitizenName(e.target.value)}
+                        placeholder="Enter your full name"
+                        className="bg-white rounded-xl text-xs font-medium"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Mobile Number * (10-Digit Indian Mobile)
+                      </label>
+                      <Input
+                        value={citizenPhone}
+                        onChange={(e) => setCitizenPhone(e.target.value)}
+                        placeholder="e.g. 9876543210"
+                        className="bg-white rounded-xl text-xs font-medium"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Your contact details will be safely preserved with your complaint so the Village Panchayat can notify you upon resolution.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* PHASE 3.1: Image Upload / Camera Box */}
+            <div className="space-y-4">
+              <span className="block text-xs font-bold uppercase tracking-wider text-[#062B46] flex items-center gap-1.5">
+                <Camera className="h-4 w-4 text-[#087F78]" />
+                <span>Problem Photograph Evidence</span>
+              </span>
+
+              {/* Hidden file and camera inputs */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+              <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+
+              {/* Live Web Camera View if Active */}
+              {isCameraOpen && (
+                <div className="rounded-2xl overflow-hidden border border-slate-300 bg-black relative max-h-96">
+                  <video ref={videoRef} autoPlay playsInline className="w-full max-h-96 object-contain" />
+                  <div className="absolute bottom-4 inset-x-0 flex items-center justify-center gap-3">
+                    <Button
+                      type="button"
+                      variant="primary"
+                      onClick={capturePhoto}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-2 rounded-xl text-xs flex items-center gap-2 cursor-pointer shadow-md"
+                    >
+                      <Camera className="h-4 w-4" />
+                      <span>Take Photo</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={stopCamera}
+                      className="bg-white/90 text-slate-800 text-xs px-4 py-2 rounded-xl cursor-pointer"
+                    >
+                      Cancel
+                    </Button>
                   </div>
                 </div>
+              )}
 
-                <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
-                  <Button
-                    type="button"
-                    variant="primary"
-                    onClick={startCamera}
-                    className="w-full sm:w-auto bg-[#087F78] hover:bg-[#06635e] text-white font-bold px-6 py-2.5 rounded-xl shadow-xs flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <Camera className="h-4 w-4" />
-                    <span>Open Mobile Camera</span>
-                  </Button>
-
-                  <Button
-                    type="button"
-                    variant="outline"
+              {/* Upload Dropzone / Gallery & Camera Buttons */}
+              {!previewUrl && !isCameraOpen ? (
+                <div className="space-y-4">
+                  <div
                     onClick={() => fileInputRef.current?.click()}
-                    className="w-full sm:w-auto border-slate-300 text-slate-700 font-semibold px-6 py-2.5 rounded-xl cursor-pointer"
+                    className="border-2 border-dashed border-teal-300 hover:border-teal-500 rounded-2xl p-8 sm:p-10 text-center bg-teal-50/30 hover:bg-teal-50/60 transition-all cursor-pointer flex flex-col items-center justify-center gap-3"
                   >
-                    <Upload className="h-4 w-4 mr-1.5" />
-                    <span>Upload from Gallery</span>
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              /* Image Preview Box */
-              <div className="space-y-4">
-                <div className="relative rounded-2xl overflow-hidden border border-slate-200 bg-slate-900 max-h-96 flex items-center justify-center">
-                  <img
-                    src={previewUrl}
-                    alt="Problem Preview"
-                    className="w-full max-h-96 object-contain"
-                  />
-                  {isAiAnalyzing && (
-                    <div className="absolute inset-0 bg-black/50 backdrop-blur-xs flex flex-col items-center justify-center text-white p-4">
-                      <Loader2 className="h-8 w-8 animate-spin text-teal-400 mb-2" />
-                      <p className="font-bold text-sm">Gemini AI analyzing problem evidence...</p>
+                    <div className="h-14 w-14 rounded-full bg-teal-100 text-[#087F78] flex items-center justify-center shadow-xs">
+                      <Upload className="h-7 w-7" />
                     </div>
-                  )}
+                    <div>
+                      <p className="font-bold text-[#062B46] text-sm">
+                        Select Problem Photograph
+                      </p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Supports JPEG, PNG, WebP up to 10 MB
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                    <Button
+                      type="button"
+                      variant="primary"
+                      onClick={startCamera}
+                      className="w-full sm:w-auto bg-[#087F78] hover:bg-[#06635e] text-white font-bold px-6 py-2.5 rounded-xl shadow-xs flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Camera className="h-4 w-4" />
+                      <span>Open Camera</span>
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full sm:w-auto border-slate-300 text-slate-700 font-semibold px-6 py-2.5 rounded-xl cursor-pointer flex items-center justify-center gap-2"
+                    >
+                      <Upload className="h-4 w-4 text-slate-500" />
+                      <span>Upload from Gallery</span>
+                    </Button>
+                  </div>
                 </div>
+              ) : previewUrl && !isCameraOpen ? (
+                /* Image Preview Box */
+                <div className="space-y-3">
+                  <div className="relative rounded-2xl overflow-hidden border border-slate-200 bg-slate-900 max-h-80 flex items-center justify-center">
+                    <img
+                      src={previewUrl}
+                      alt="Complaint Preview"
+                      className="w-full max-h-80 object-contain"
+                    />
+                  </div>
 
-                <div className="flex items-center justify-between gap-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setSelectedFile(null);
-                      setPreviewUrl(null);
-                    }}
-                    className="text-xs border-slate-300 text-slate-700"
-                  >
-                    <RotateCcw className="h-3.5 w-3.5 mr-1" />
-                    Replace Photograph
-                  </Button>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="text-xs text-slate-700"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5 mr-1" />
+                        Replace Image
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedFile(null);
+                          setPreviewUrl(null);
+                        }}
+                        className="text-xs text-rose-600 hover:bg-rose-50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5 mr-1" />
+                        Remove
+                      </Button>
+                    </div>
 
-                  <Button
-                    type="button"
-                    variant="primary"
-                    onClick={() => setCurrentStep(2)}
-                    disabled={!selectedFile}
-                    className="bg-[#087F78] hover:bg-[#06635e] text-white font-bold px-6 text-xs cursor-pointer disabled:opacity-50"
-                  >
-                    <span>Continue to Location</span>
-                    <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
-                  </Button>
+                    <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 text-[10px] font-bold">
+                      ✓ Image Ready ({selectedFile?.name})
+                    </Badge>
+                  </div>
                 </div>
-              </div>
-            )}
+              ) : null}
+            </div>
 
-            {/* Hidden File Inputs */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleFileChange}
-            />
-            <input
-              ref={cameraInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onChange={handleFileChange}
-            />
+            {/* Navigation to Step 2 */}
+            <div className="flex justify-end pt-4 border-t border-slate-100">
+              <Button
+                type="button"
+                variant="primary"
+                onClick={() => {
+                  if (!citizenName.trim()) {
+                    setErrorMessage("Please enter your name.");
+                    return;
+                  }
+                  if (!isAuthenticated && !validateIndianPhone(citizenPhone)) {
+                    setErrorMessage("Please enter a valid 10-digit Indian mobile number (e.g. 9876543210).");
+                    return;
+                  }
+                  if (!selectedFile) {
+                    setErrorMessage("Please select or capture a photograph of the civic defect.");
+                    return;
+                  }
+                  setErrorMessage(null);
+                  setCurrentStep(2);
+                }}
+                disabled={!selectedFile || !citizenName.trim() || (!isAuthenticated && !validateIndianPhone(citizenPhone))}
+                className="bg-[#087F78] hover:bg-[#06635e] text-white font-bold px-6 text-xs transition-all cursor-pointer disabled:opacity-50"
+              >
+                <span>Continue to Location</span>
+                <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
+              </Button>
+            </div>
           </Card>
         )}
 
-        {/* Live Camera Modal */}
-        {isCameraOpen && (
-          <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
-            <div className="w-full max-w-lg bg-black rounded-3xl overflow-hidden relative border border-slate-800">
-              <video ref={videoRef} autoPlay playsInline className="w-full h-80 sm:h-96 object-cover" />
-              <div className="absolute top-4 right-4 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={stopCamera}
-                  className="p-2 rounded-full bg-black/60 text-white hover:bg-black/80"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-              <div className="p-4 bg-slate-950 flex items-center justify-around">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={stopCamera}
-                  className="text-white border-slate-700"
-                >
-                  Cancel
-                </Button>
-                <button
-                  type="button"
-                  onClick={capturePhoto}
-                  className="h-16 w-16 rounded-full border-4 border-white bg-rose-600 flex items-center justify-center active:scale-95 transition-all shadow-lg"
-                >
-                  <Camera className="h-7 w-7 text-white" />
-                </button>
-                <div className="w-16" />
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* =========================================================================
-            STEP 2: LOCATION — GOOGLE MAPS & LOCATION CONFIRMATION
+            STEP 2: LOCATION — EXISTING LIVE GOOGLE MAPS (PHASE 3.2 - 3.5)
            ========================================================================= */}
         {!trackingId && currentStep === 2 && (
           <Card className="p-6 sm:p-8 space-y-6 rounded-3xl border-slate-200 shadow-sm bg-white">
@@ -729,7 +847,7 @@ export default function ReportProblemPage() {
               )}
             </div>
 
-            {/* Reusable Real Google Maps Picker Component */}
+            {/* Reusable Real Google Maps Picker Component (PRESERVED INTACT) */}
             <LocationMapPicker
               latitude={locationData?.lat ?? null}
               longitude={locationData?.lon ?? null}
@@ -743,6 +861,57 @@ export default function ReportProblemPage() {
               }}
               onConfirmLocation={(conf) => setIsLocationConfirmed(conf)}
             />
+
+            {/* PHASE 3.4: Location Confirmation Card */}
+            {locationData && locationData.lat && (
+              <div className="rounded-2xl border border-teal-200 bg-gradient-to-r from-teal-50/70 to-blue-50/50 p-4 sm:p-5 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <p className="font-bold text-[#062B46] text-sm">
+                      Your location has been detected. Please verify that this is the actual location of the problem.
+                    </p>
+                    <p className="text-xs text-slate-600">
+                      Village: <strong>{locationData.address.village}</strong> • Taluk: <strong>{locationData.address.taluk}</strong> • PIN: <strong>{locationData.address.postalCode || "Not available"}</strong>
+                    </p>
+                    <p className="font-mono text-[11px] text-teal-800">
+                      📍 {locationData.lat.toFixed(6)}°N, {locationData.lon.toFixed(6)}°E
+                    </p>
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="primary"
+                    onClick={() => {
+                      setIsLocationConfirmed(true);
+                      setErrorMessage(null);
+                    }}
+                    className={`shrink-0 font-bold px-5 py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      isLocationConfirmed
+                        ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                        : "bg-[#087F78] hover:bg-[#06635e] text-white"
+                    }`}
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>{isLocationConfirmed ? "Location Confirmed ✓" : "Confirm Location"}</span>
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* PHASE 3.5: Visual Confirmation Indicators */}
+            {selectedFile && isLocationConfirmed && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div className="rounded-xl p-3 border border-emerald-200 bg-emerald-50/80 flex items-center gap-2.5 text-xs text-emerald-900 font-bold">
+                  <span className="text-base">📸</span>
+                  <span>Problem Image — Uploaded successfully.</span>
+                </div>
+
+                <div className="rounded-xl p-3 border border-emerald-200 bg-emerald-50/80 flex items-center gap-2.5 text-xs text-emerald-900 font-bold">
+                  <span className="text-base">📍</span>
+                  <span>Problem Location — Detected and confirmed.</span>
+                </div>
+              </div>
+            )}
 
             {/* Step Navigation Actions */}
             <div className="flex items-center justify-between pt-4 border-t border-slate-100">
@@ -772,9 +941,9 @@ export default function ReportProblemPage() {
                   setCurrentStep(3);
                 }}
                 disabled={!locationData || !locationData.lat || !isLocationConfirmed}
-                className="bg-[#087F78] hover:bg-[#06635e] text-white font-bold px-6 text-xs transition-all disabled:opacity-50"
+                className="bg-[#087F78] hover:bg-[#06635e] text-white font-bold px-6 text-xs transition-all disabled:opacity-50 cursor-pointer"
               >
-                <span>Continue to Details</span>
+                <span>Continue to Details & Language</span>
                 <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
               </Button>
             </div>
@@ -782,76 +951,82 @@ export default function ReportProblemPage() {
         )}
 
         {/* =========================================================================
-            STEP 3: DETAILS — CITIZEN & COMPLAINT DETAILS
+            STEP 3: DETAILS & LANGUAGE SELECTION (PHASE 4 PREP)
            ========================================================================= */}
         {!trackingId && currentStep === 3 && (
           <Card className="p-6 sm:p-8 space-y-6 rounded-3xl border-slate-200 shadow-sm bg-white">
             <div className="border-b border-slate-100 pb-4">
               <h2 className="text-lg font-bold text-[#062B46]">
-                Step 3: Citizen & Complaint Details
+                Step 3: Complaint Language & Problem Details
               </h2>
               <p className="text-xs text-slate-500">
-                Your contact details are pre-filled from your profile. Provide a title and description for the issue.
+                Choose your preferred language for the complaint description and provide title or notes.
               </p>
             </div>
 
-            {/* Confirmed Location Badge Pill */}
-            {locationData && (
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex items-start gap-2.5 text-xs text-slate-700">
-                <MapPin className="h-4 w-4 text-[#087F78] shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <strong>Confirmed Location:</strong> {locationData.address.formattedAddress}
-                  <div className="text-[11px] text-slate-500 mt-0.5">
-                    Village: {locationData.address.village} • Taluk: {locationData.address.taluk}
-                  </div>
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setCurrentStep(2)}
-                  className="text-xs text-teal-700 h-7 px-2"
-                >
-                  Adjust Pin
-                </Button>
-              </div>
-            )}
+            {/* PHASE 4: Language Selection */}
+            <div className="rounded-2xl border border-teal-200 bg-teal-50/50 p-4 sm:p-5 space-y-2.5">
+              <label className="block text-xs font-bold uppercase tracking-wider text-[#062B46] flex items-center gap-1.5">
+                <Globe className="h-4 w-4 text-[#087F78]" />
+                <span>Which language would you like to use for your complaint? *</span>
+              </label>
 
-            {/* Citizen Contact Details (Editable) */}
-            <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-3">
-              <span className="block text-xs font-bold uppercase tracking-wider text-slate-600">
-                Citizen Contact Information
-              </span>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
-                    <User className="h-3 w-3 text-slate-400" />
-                    <span>Citizen Full Name</span>
-                  </label>
-                  <Input
-                    value={citizenName}
-                    onChange={(e) => setCitizenName(e.target.value)}
-                    placeholder="Enter your name"
-                    className="bg-white rounded-xl text-xs font-medium"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
-                    <Phone className="h-3 w-3 text-slate-400" />
-                    <span>Contact Phone Number</span>
-                  </label>
-                  <Input
-                    value={citizenPhone}
-                    onChange={(e) => setCitizenPhone(e.target.value)}
-                    placeholder="e.g. 9876543210"
-                    className="bg-white rounded-xl text-xs font-medium"
-                  />
-                </div>
+              <div className="grid grid-cols-3 gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setSelectedLanguage("kn")}
+                  className={`p-3 rounded-xl border text-center transition-all cursor-pointer ${
+                    selectedLanguage === "kn"
+                      ? "border-[#087F78] bg-white ring-2 ring-[#087F78] text-[#087F78] font-bold shadow-xs"
+                      : "border-slate-200 bg-white/70 text-slate-700 hover:bg-white"
+                  }`}
+                >
+                  <span className="block text-sm font-black">ಕನ್ನಡ</span>
+                  <span className="block text-[10px] text-slate-500">Kannada</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedLanguage("en")}
+                  className={`p-3 rounded-xl border text-center transition-all cursor-pointer ${
+                    selectedLanguage === "en"
+                      ? "border-[#087F78] bg-white ring-2 ring-[#087F78] text-[#087F78] font-bold shadow-xs"
+                      : "border-slate-200 bg-white/70 text-slate-700 hover:bg-white"
+                  }`}
+                >
+                  <span className="block text-sm font-black">English</span>
+                  <span className="block text-[10px] text-slate-500">Standard English</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedLanguage("hi")}
+                  className={`p-3 rounded-xl border text-center transition-all cursor-pointer ${
+                    selectedLanguage === "hi"
+                      ? "border-[#087F78] bg-white ring-2 ring-[#087F78] text-[#087F78] font-bold shadow-xs"
+                      : "border-slate-200 bg-white/70 text-slate-700 hover:bg-white"
+                  }`}
+                >
+                  <span className="block text-sm font-black">हिन्दी</span>
+                  <span className="block text-[10px] text-slate-500">Hindi</span>
+                </button>
               </div>
             </div>
 
-            {/* Form Fields: Title, Description, Landmark */}
+            {/* Form Fields: Category, Title, Description, Voice */}
             <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                  Problem Category *
+                </label>
+                <Select
+                  value={activeCategory}
+                  onChange={(e) => setActiveCategory(e.target.value)}
+                  options={CATEGORY_OPTIONS}
+                  className="rounded-xl border-slate-200 text-xs font-semibold"
+                />
+              </div>
+
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                   Complaint Title *
@@ -859,47 +1034,55 @@ export default function ReportProblemPage() {
                 <Input
                   value={issueTitle}
                   onChange={(e) => setIssueTitle(e.target.value)}
-                  placeholder="e.g. Deep Pothole on Main Road near Bus Stop"
-                  className="rounded-xl border-slate-200 text-sm font-semibold text-[#062B46]"
+                  placeholder="e.g. Broken water pipe leaking on main road"
+                  className="rounded-xl text-xs font-medium"
                 />
               </div>
 
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                    Detailed Problem Description *
+                    Complaint Description *
                   </label>
                   <Button
                     type="button"
-                    variant={isRecording ? "primary" : "outline"}
+                    variant="outline"
                     size="sm"
-                    onClick={toggleRecording}
-                    className={`text-xs h-7 px-2.5 font-semibold ${
-                      isRecording ? "bg-rose-600 hover:bg-rose-700 text-white animate-pulse" : "border-slate-300"
+                    onClick={() => {
+                      if (isRecording) {
+                        recognitionRef.current?.stop();
+                        setIsRecording(false);
+                      } else {
+                        recognitionRef.current?.start();
+                        setIsRecording(true);
+                      }
+                    }}
+                    className={`h-7 px-2.5 text-[11px] rounded-lg flex items-center gap-1 cursor-pointer ${
+                      isRecording ? "bg-rose-50 border-rose-300 text-rose-700 animate-pulse" : "border-teal-200 text-[#087F78]"
                     }`}
                   >
-                    {isRecording ? <MicOff className="h-3 w-3 mr-1" /> : <Mic className="h-3 w-3 mr-1" />}
-                    <span>{isRecording ? "Stop Recording" : "Voice Typing"}</span>
+                    {isRecording ? <MicOff className="h-3 w-3" /> : <Mic className="h-3 w-3" />}
+                    <span>{isRecording ? "Stop Recording" : "Voice Input"}</span>
                   </Button>
                 </div>
                 <Textarea
-                  rows={4}
                   value={activeDescription}
                   onChange={(e) => setActiveDescription(e.target.value)}
-                  placeholder="Describe the problem, severity, hazards, or impact on local residents..."
-                  className="rounded-xl border-slate-200 text-sm"
+                  rows={4}
+                  placeholder="Describe the issue, location context, hazard level, or surrounding landmarks..."
+                  className="rounded-xl text-xs font-medium"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                  Additional Relevant Information / Landmark (Optional)
+                  Nearby Landmark (Optional)
                 </label>
                 <Input
                   value={additionalLandmark}
                   onChange={(e) => setAdditionalLandmark(e.target.value)}
-                  placeholder="e.g. Opposite Government Primary School, near cross road"
-                  className="rounded-xl border-slate-200 text-xs"
+                  placeholder="e.g. Opposite Government Primary School, near temple"
+                  className="rounded-xl text-xs font-medium"
                 />
               </div>
             </div>
@@ -920,19 +1103,14 @@ export default function ReportProblemPage() {
                 type="button"
                 variant="primary"
                 onClick={() => {
-                  if (!issueTitle.trim()) {
-                    setErrorMessage("Please enter a complaint title.");
-                    return;
-                  }
-                  if (!activeDescription.trim()) {
-                    setErrorMessage("Please enter a problem description.");
-                    return;
-                  }
                   setErrorMessage(null);
                   setCurrentStep(4);
+                  // Run AI analysis if not already executed
+                  if (selectedFile && !hasAiRun) {
+                    triggerGeminiAnalysis(selectedFile, selectedLanguage);
+                  }
                 }}
-                disabled={!issueTitle.trim() || !activeDescription.trim()}
-                className="bg-[#087F78] hover:bg-[#06635e] text-white font-bold px-6 text-xs transition-all disabled:opacity-50"
+                className="bg-[#087F78] hover:bg-[#06635e] text-white font-bold px-6 text-xs transition-all cursor-pointer"
               >
                 <span>Continue to AI Analysis</span>
                 <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
@@ -942,7 +1120,7 @@ export default function ReportProblemPage() {
         )}
 
         {/* =========================================================================
-            STEP 4: AI ANALYSIS — GEMINI VISION MULTIMODAL FINDINGS
+            STEP 4: AI ANALYSIS — GEMINI & ROBOFLOW MODELS (PHASE 4)
            ========================================================================= */}
         {!trackingId && currentStep === 4 && (
           <Card className="p-6 sm:p-8 space-y-6 rounded-3xl border-slate-200 shadow-sm bg-white">
@@ -954,17 +1132,18 @@ export default function ReportProblemPage() {
                     <span>Step 4: AI Problem Analysis (Gemini Vision)</span>
                   </h2>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Google Gemini AI multimodal analysis inspects your photo to detect civic defects, suggest categories, estimate severity, and extract visible landmarks.
+                    Google Gemini AI inspects your photo to detect defects and generate natural descriptions in your chosen language ({selectedLanguage.toUpperCase()}).
                   </p>
                 </div>
+
                 {selectedFile && (
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => triggerGeminiAnalysis(selectedFile)}
+                    onClick={() => triggerGeminiAnalysis(selectedFile, selectedLanguage)}
                     disabled={isAiAnalyzing}
-                    className="text-xs border-teal-300 text-teal-800 hover:bg-teal-50"
+                    className="text-xs border-teal-300 text-teal-800 hover:bg-teal-50 cursor-pointer"
                   >
                     {isAiAnalyzing ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RotateCcw className="h-3.5 w-3.5 mr-1" />}
                     <span>Re-analyze</span>
@@ -973,121 +1152,93 @@ export default function ReportProblemPage() {
               </div>
             </div>
 
-            {/* AI Analysis Results Card */}
+            {/* AI Analysis State */}
             {isAiAnalyzing ? (
               <div className="p-8 text-center bg-teal-50/50 rounded-2xl border border-teal-200 space-y-3">
                 <Loader2 className="h-8 w-8 animate-spin text-[#087F78] mx-auto" />
                 <p className="font-bold text-[#062B46] text-sm">
-                  Gemini Vision Multimodal Analysis in Progress...
+                  GramaSeva AI Multimodal Vision Analysis in Progress...
                 </p>
                 <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                  Extracting visual defect patterns, estimating hazard severity, and detecting road or infrastructure boundaries.
+                  Analysing civic defect patterns, estimating hazard severity, and generating natural descriptions in {selectedLanguage === "kn" ? "Kannada" : selectedLanguage === "hi" ? "Hindi" : "English"}.
                 </p>
               </div>
             ) : (
               <div className="space-y-5">
-                {/* Visual Summary & Badges */}
-                <div className="bg-gradient-to-r from-teal-50/80 to-blue-50/80 rounded-2xl p-5 border border-teal-200/80 space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-[#062B46] uppercase tracking-wider">
-                      Gemini Visual Assessment
-                    </span>
-                    <div className="flex items-center gap-2">
-                      {aiConfidenceScore && (
-                        <Badge className="bg-teal-100 text-teal-900 border-teal-300 font-bold text-[11px]">
-                          {Math.round(aiConfidenceScore * 100)}% Confidence
-                        </Badge>
-                      )}
-                      <Badge className="bg-blue-100 text-blue-900 border-blue-300 font-bold text-[11px]">
-                        AI Assisted
-                      </Badge>
+                {/* PHASE 4.3: Friendly AI Message Banner */}
+                <div className="bg-gradient-to-r from-teal-50/90 to-blue-50/90 rounded-2xl p-5 border border-teal-200 space-y-3">
+                  <div className="flex items-start gap-3">
+                    <div className="h-10 w-10 rounded-full bg-teal-100 text-[#087F78] flex items-center justify-center shrink-0 shadow-2xs">
+                      <Sparkles className="h-5 w-5" />
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="font-bold text-sm text-[#062B46]">
+                        Hello! I am GramaSeva AI.
+                      </h3>
+                      <p className="text-xs text-slate-700 leading-relaxed">
+                        I analysed your uploaded photograph and identified a possible civic problem. Review the detected details below:
+                      </p>
                     </div>
                   </div>
 
-                  {aiDefectLabel && (
-                    <p className="text-xs font-semibold text-slate-800">
-                      Visual Findings: <span className="font-normal text-slate-700">{aiDefectLabel}</span>
-                    </p>
-                  )}
-
-                  {aiOcrText && (
-                    <div className="rounded-lg bg-white/80 p-2.5 border border-teal-200 text-xs">
-                      <span className="block text-[10px] font-bold text-slate-500 uppercase">
-                        Detected Signage / OCR Text
-                      </span>
-                      <p className="font-mono text-slate-800">{aiOcrText}</p>
+                  {/* AI Results Dossier */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 text-xs">
+                    <div className="bg-white/90 p-3 rounded-xl border border-teal-200/60 space-y-1">
+                      <span className="block text-[10px] font-bold uppercase text-slate-400">Detected Category</span>
+                      <strong className="text-slate-900 block">{activeCategory.replace("_", " ").toUpperCase()}</strong>
+                      {aiConfidenceScore && (
+                        <span className="text-[11px] text-teal-700 font-semibold block">
+                          AI Confidence: {Math.round(aiConfidenceScore * 100)}%
+                        </span>
+                      )}
                     </div>
-                  )}
 
-                  <p className="text-[11px] text-slate-500 italic">
-                    Note: Gemini provides suggestions only. You can adjust or override every field below before continuing.
+                    <div className="bg-white/90 p-3 rounded-xl border border-teal-200/60 space-y-1">
+                      <span className="block text-[10px] font-bold uppercase text-slate-400">Severity Assessment</span>
+                      <Badge className="bg-amber-100 text-amber-800 border-amber-300 font-bold text-[10px]">
+                        Severity: {aiSeverity}
+                      </Badge>
+                      {aiDefectLabel && (
+                        <span className="text-[11px] text-slate-600 block truncate">Findings: {aiDefectLabel}</span>
+                      )}
+                    </div>
+
+                    <div className="bg-white/90 p-3 rounded-xl border border-teal-200/60 sm:col-span-2 space-y-1">
+                      <span className="block text-[10px] font-bold uppercase text-slate-400">Generated Title ({selectedLanguage.toUpperCase()})</span>
+                      <strong className="text-slate-900 text-sm block">{issueTitle}</strong>
+                    </div>
+
+                    <div className="bg-white/90 p-3 rounded-xl border border-teal-200/60 sm:col-span-2 space-y-1">
+                      <span className="block text-[10px] font-bold uppercase text-slate-400">Generated Description ({selectedLanguage.toUpperCase()})</span>
+                      <p className="text-slate-700 text-xs leading-relaxed">{activeDescription}</p>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-slate-500 italic pt-1">
+                    Note: This is an AI suggestion. You can freely edit the title, category, and description before final confirmation.
                   </p>
                 </div>
 
-                {/* Citizen Editable Fields */}
-                <div className="space-y-4">
-                  {/* Category Selection */}
+                {/* Edit Suggestions Inline */}
+                <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50 space-y-3">
+                  <span className="block text-xs font-bold text-[#062B46]">
+                    Fine-tune AI Generated Title & Description:
+                  </span>
                   <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                      Problem Category (Gemini Suggestion) *
-                    </label>
-                    <Select
-                      value={activeCategory}
-                      onChange={(e) => setActiveCategory(e.target.value)}
-                      options={CATEGORY_OPTIONS}
-                      className="rounded-xl border-slate-200 text-sm font-semibold"
-                    />
-                  </div>
-
-                  {/* Severity Level Selector */}
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                      Estimated Defect Severity *
-                    </label>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      {SEVERITY_LEVELS.map((sev) => {
-                        const isSelected = aiSeverity === sev.id;
-                        return (
-                          <button
-                            key={sev.id}
-                            type="button"
-                            onClick={() => setAiSeverity(sev.id)}
-                            className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all text-center ${
-                              isSelected
-                                ? "bg-[#087F78] text-white border-[#087F78] shadow-xs"
-                                : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
-                            }`}
-                          >
-                            {sev.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Title & Description Corrections */}
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                      Complaint Title
-                    </label>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">Title</label>
                     <Input
                       value={issueTitle}
                       onChange={(e) => setIssueTitle(e.target.value)}
-                      placeholder="Title"
-                      className="rounded-xl border-slate-200 text-sm font-semibold text-[#062B46]"
+                      className="bg-white rounded-xl text-xs font-medium"
                     />
                   </div>
-
                   <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                      Complaint Description
-                    </label>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">Description</label>
                     <Textarea
-                      rows={3}
                       value={activeDescription}
                       onChange={(e) => setActiveDescription(e.target.value)}
-                      placeholder="Description"
-                      className="rounded-xl border-slate-200 text-sm"
+                      rows={3}
+                      className="bg-white rounded-xl text-xs font-medium"
                     />
                   </div>
                 </div>
@@ -1110,13 +1261,14 @@ export default function ReportProblemPage() {
                 type="button"
                 variant="primary"
                 onClick={() => {
-                  runDuplicateMatching();
+                  setErrorMessage(null);
                   setCurrentStep(5);
+                  runDuplicateMatching();
                 }}
                 disabled={isAiAnalyzing}
                 className="bg-[#087F78] hover:bg-[#06635e] text-white font-bold px-6 text-xs transition-all cursor-pointer"
               >
-                <span>Continue to Similar Match</span>
+                <span>Continue to Duplicate Check</span>
                 <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
               </Button>
             </div>
@@ -1124,7 +1276,7 @@ export default function ReportProblemPage() {
         )}
 
         {/* =========================================================================
-            STEP 5: MATCH — SIMILAR COMPLAINT CHECK
+            STEP 5: MATCH — DUPLICATE COMPLAINT VERIFICATION (PHASE 5)
            ========================================================================= */}
         {!trackingId && currentStep === 5 && (
           <Card className="p-6 sm:p-8 space-y-6 rounded-3xl border-slate-200 shadow-sm bg-white">
@@ -1146,19 +1298,20 @@ export default function ReportProblemPage() {
                   Checking for similar complaints in your vicinity...
                 </p>
                 <p className="text-xs text-slate-500">
-                  Comparing geographic proximity, category, and issue description.
+                  Comparing geographic proximity, visual similarity, and issue category.
                 </p>
               </div>
             ) : duplicateMatches.length > 0 ? (
+              /* Case A: Similar complaints found */
               <div className="space-y-4">
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900 flex items-start gap-3">
                   <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
                   <div>
                     <strong className="block font-bold">
-                      {duplicateMatches.length} Similar Complaint{duplicateMatches.length > 1 ? "s" : ""} Found Nearby
+                      Similar complaints found ({duplicateMatches.length} nearby)
                     </strong>
                     <span>
-                      Other citizens may have already reported an issue at or near this location. Review the existing tickets below:
+                      Other citizens may have already reported an issue near this location. Review the existing tickets below:
                     </span>
                   </div>
                 </div>
@@ -1212,7 +1365,7 @@ export default function ReportProblemPage() {
                         onChange={() => setDuplicateChoice("separate")}
                         className="text-[#087F78] focus:ring-[#087F78]"
                       />
-                      <span>This is a separate issue or still requires fresh reporting (Continue)</span>
+                      <span>This is a separate issue or still requires reporting (Continue submission)</span>
                     </label>
 
                     <label className="flex items-center gap-2.5 cursor-pointer text-xs font-semibold text-slate-800">
@@ -1234,15 +1387,19 @@ export default function ReportProblemPage() {
                 </div>
               </div>
             ) : (
-              <div className="p-8 text-center bg-emerald-50 rounded-2xl border border-emerald-200 space-y-2">
+              /* Case B: No likely duplicate found */
+              <div className="p-8 text-center bg-emerald-50 rounded-2xl border border-emerald-200 space-y-2.5">
                 <div className="h-12 w-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
                   <CheckCircle className="h-6 w-6 stroke-[2.5]" />
                 </div>
                 <h3 className="font-bold text-emerald-950 text-sm">
-                  No Similar Civic Complaints Found Nearby
+                  Good news! We did not find a likely duplicate complaint. You can continue with your submission.
                 </h3>
                 <p className="text-xs text-emerald-800 max-w-sm mx-auto">
                   Your report appears unique in this vicinity. No active duplicate tickets were detected for this category and location.
+                </p>
+                <p className="text-[11px] text-emerald-700 italic pt-1">
+                  Note: This is an AI-assisted similarity check.
                 </p>
               </div>
             )}
@@ -1274,7 +1431,7 @@ export default function ReportProblemPage() {
         )}
 
         {/* =========================================================================
-            STEP 6: CONFIRM — REVIEW & CONFIRM SUBMISSION
+            STEP 6: CONFIRM — FULL PREVIEW WITH EDIT BUTTONS (PHASE 6)
            ========================================================================= */}
         {!trackingId && currentStep === 6 && (
           <Card className="p-6 sm:p-8 space-y-6 rounded-3xl border-slate-200 shadow-sm bg-white">
@@ -1283,75 +1440,165 @@ export default function ReportProblemPage() {
                 Step 6: Review & Confirm Submission
               </h2>
               <p className="text-xs text-slate-500">
-                Please review all complaint details before final submission. Your grievance will be permanently recorded in the Gram Panchayat ledger.
+                Please review all complaint details before final submission. Click Edit beside any section to adjust without losing entered information.
               </p>
             </div>
 
-            {/* Submission Preview Breakdown */}
+            {/* Full Preview Dossier with Edit Buttons on Every Section */}
             <div className="space-y-4 text-xs">
-              {/* Photo & Summary Header */}
-              <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50 flex flex-col sm:flex-row items-center gap-4">
+              {/* Section 1: Citizen Details */}
+              <div className="p-4 rounded-2xl border border-slate-200 bg-white space-y-2">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <span className="font-bold text-xs uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                    <User className="h-3.5 w-3.5 text-[#087F78]" />
+                    <span>Citizen Contact Details</span>
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setCurrentStep(1)}
+                    className="text-xs text-[#087F78] hover:bg-teal-50 h-7 px-2 font-bold flex items-center gap-1"
+                  >
+                    <Edit className="h-3 w-3" />
+                    <span>Edit</span>
+                  </Button>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-slate-700 pt-1">
+                  <div>Name: <strong className="text-slate-900">{citizenName || "Guest"}</strong></div>
+                  <div>Mobile: <strong className="text-slate-900">{citizenPhone || "Not provided"}</strong></div>
+                  <div className="col-span-2 text-[11px] text-slate-500">
+                    Status: {isAuthenticated ? "Verified Citizen Account" : "Guest Citizen Submission"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 2: Uploaded Evidence */}
+              <div className="p-4 rounded-2xl border border-slate-200 bg-white space-y-2">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <span className="font-bold text-xs uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                    <Camera className="h-3.5 w-3.5 text-[#087F78]" />
+                    <span>Uploaded Evidence Photograph</span>
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setCurrentStep(1)}
+                    className="text-xs text-[#087F78] hover:bg-teal-50 h-7 px-2 font-bold flex items-center gap-1"
+                  >
+                    <Edit className="h-3 w-3" />
+                    <span>Edit</span>
+                  </Button>
+                </div>
                 {previewUrl && (
-                  <img
-                    src={previewUrl}
-                    alt="Complaint Evidence"
-                    className="h-28 w-28 rounded-xl object-cover border border-slate-200 shrink-0"
-                  />
+                  <div className="flex items-center gap-4 pt-1">
+                    <img
+                      src={previewUrl}
+                      alt="Complaint Evidence"
+                      className="h-20 w-20 rounded-xl object-cover border border-slate-200 shrink-0"
+                    />
+                    <div className="space-y-0.5 text-slate-600">
+                      <p className="font-semibold text-slate-900">{selectedFile?.name}</p>
+                      <p className="text-[11px]">Size: {selectedFile ? Math.round(selectedFile.size / 1024) : 0} KB</p>
+                      <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 text-[10px] font-bold">
+                        ✓ Image Verified
+                      </Badge>
+                    </div>
+                  </div>
                 )}
-                <div className="space-y-1.5 flex-1 text-center sm:text-left">
-                  <Badge className="bg-teal-100 text-teal-800 border-teal-300 font-bold text-[10px]">
-                    {activeCategory.replace("_", " ").toUpperCase()}
-                  </Badge>
+              </div>
+
+              {/* Section 3: Location & Jurisdiction */}
+              {locationData && (
+                <div className="p-4 rounded-2xl border border-slate-200 bg-white space-y-2">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                    <span className="font-bold text-xs uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                      <MapPin className="h-3.5 w-3.5 text-[#087F78]" />
+                      <span>Confirmed Location & Jurisdiction</span>
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setCurrentStep(2)}
+                      className="text-xs text-[#087F78] hover:bg-teal-50 h-7 px-2 font-bold flex items-center gap-1"
+                    >
+                      <Edit className="h-3 w-3" />
+                      <span>Edit</span>
+                    </Button>
+                  </div>
+                  <p className="font-bold text-slate-800 pt-1">{locationData.address.formattedAddress}</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[11px] text-slate-600">
+                    <div>Village: <strong className="text-slate-800">{locationData.address.village}</strong></div>
+                    <div>Taluk: <strong className="text-slate-800">{locationData.address.taluk}</strong></div>
+                    <div>District: <strong className="text-slate-800">{locationData.address.district}</strong></div>
+                    <div>PIN: <strong className="text-slate-800">{locationData.address.postalCode || "Not available"}</strong></div>
+                    <div className="sm:col-span-2 font-mono text-teal-800">
+                      Coordinates: {locationData.lat.toFixed(6)}°N, {locationData.lon.toFixed(6)}°E
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Section 4: Complaint Details */}
+              <div className="p-4 rounded-2xl border border-slate-200 bg-white space-y-2">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <span className="font-bold text-xs uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                    <FileText className="h-3.5 w-3.5 text-[#087F78]" />
+                    <span>Complaint Details ({selectedLanguage.toUpperCase()})</span>
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setCurrentStep(3)}
+                    className="text-xs text-[#087F78] hover:bg-teal-50 h-7 px-2 font-bold flex items-center gap-1"
+                  >
+                    <Edit className="h-3 w-3" />
+                    <span>Edit</span>
+                  </Button>
+                </div>
+                <div className="space-y-1 pt-1">
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-teal-100 text-teal-800 border-teal-300 font-bold text-[10px]">
+                      {activeCategory.replace("_", " ").toUpperCase()}
+                    </Badge>
+                    <Badge className="bg-slate-100 text-slate-700 text-[10px]">
+                      Language: {selectedLanguage === "kn" ? "Kannada" : selectedLanguage === "hi" ? "Hindi" : "English"}
+                    </Badge>
+                  </div>
                   <h3 className="font-bold text-sm text-[#062B46]">{issueTitle}</h3>
-                  <p className="text-slate-600 line-clamp-2">{activeDescription}</p>
+                  <p className="text-slate-600">{activeDescription}</p>
                   {additionalLandmark && (
                     <p className="text-slate-500 text-[11px]">Landmark: {additionalLandmark}</p>
                   )}
                 </div>
               </div>
 
-              {/* Location Summary */}
-              {locationData && (
-                <div className="p-4 rounded-2xl border border-slate-200 bg-white space-y-2">
-                  <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                    Confirmed Location & Jurisdiction
+              {/* Section 5: AI Verification & Duplicate Result */}
+              <div className="p-4 rounded-2xl border border-slate-200 bg-white space-y-2">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <span className="font-bold text-xs uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5 text-[#087F78]" />
+                    <span>AI Verification & Similarity Status</span>
                   </span>
-                  <p className="font-bold text-slate-800">{locationData.address.formattedAddress}</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[11px] text-slate-600">
-                    <div>Village: <strong>{locationData.address.village}</strong></div>
-                    <div>Taluk: <strong>{locationData.address.taluk}</strong></div>
-                    <div>District: <strong>{locationData.address.district}</strong></div>
-                    <div>GPS Coordinates: <strong>{locationData.lat.toFixed(6)}°N, {locationData.lon.toFixed(6)}°E</strong></div>
-                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setCurrentStep(4)}
+                    className="text-xs text-[#087F78] hover:bg-teal-50 h-7 px-2 font-bold flex items-center gap-1"
+                  >
+                    <Edit className="h-3 w-3" />
+                    <span>Edit</span>
+                  </Button>
                 </div>
-              )}
-
-              {/* Citizen Contact & Duplicate Status */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="p-3.5 rounded-2xl border border-slate-200 bg-white space-y-1">
-                  <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                    Reporting Citizen
-                  </span>
-                  <p className="font-bold text-[#062B46]">{citizenName || "Anonymous Resident"}</p>
-                  <p className="text-slate-500 text-[11px]">Phone: {citizenPhone || "Not provided"}</p>
-                </div>
-
-                <div className="p-3.5 rounded-2xl border border-slate-200 bg-white space-y-1">
-                  <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                    Duplicate Status & Severity
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-emerald-100 text-emerald-800 font-bold text-[10px]">
-                      {duplicateChoice === "same" ? "Linked to Existing" : "Verified Separate Issue"}
-                    </Badge>
-                    <Badge className="bg-amber-100 text-amber-800 font-bold text-[10px]">
-                      Severity: {aiSeverity}
-                    </Badge>
-                  </div>
+                <div className="grid grid-cols-2 gap-2 text-slate-700 pt-1 text-[11px]">
+                  <div>Duplicate Status: <strong className="text-slate-900">{duplicateChoice === "same" ? "Linked to Existing Ticket" : "Verified Separate Complaint"}</strong></div>
+                  <div>Estimated Severity: <strong className="text-slate-900">{aiSeverity}</strong></div>
                   {aiConfidenceScore && (
-                    <p className="text-slate-500 text-[11px]">
-                      Gemini Vision Confidence: {Math.round(aiConfidenceScore * 100)}%
-                    </p>
+                    <div className="col-span-2 text-slate-500">Gemini Vision Defect Confidence: {Math.round(aiConfidenceScore * 100)}%</div>
                   )}
                 </div>
               </div>
@@ -1375,17 +1622,17 @@ export default function ReportProblemPage() {
                 variant="primary"
                 onClick={handleSubmitComplaint}
                 disabled={isSubmitting}
-                className="bg-[#087F78] hover:bg-[#06635e] text-white font-bold px-8 py-2.5 rounded-xl shadow-md cursor-pointer flex items-center gap-2"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-8 py-2.5 text-xs rounded-xl shadow-sm transition-all cursor-pointer flex items-center gap-2"
               >
                 {isSubmitting ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>Submitting Complaint...</span>
+                    <span>Registering Complaint in PostgreSQL...</span>
                   </>
                 ) : (
                   <>
-                    <CheckCircle className="h-4 w-4" />
-                    <span>Confirm & Submit Complaint ✓</span>
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>Confirm and Submit</span>
                   </>
                 )}
               </Button>
@@ -1394,14 +1641,10 @@ export default function ReportProblemPage() {
         )}
 
         {/* =========================================================================
-            FINAL SUCCESS CONFIRMATION & TRACKING ID — STARRED OFFICIAL UI
+            PHASE 7: POST-SUBMISSION SUCCESS MESSAGE
            ========================================================================= */}
         {trackingId && (
           <Card className="p-6 sm:p-10 text-center space-y-8 rounded-3xl border border-teal-200/80 shadow-lg bg-gradient-to-b from-white via-teal-50/20 to-white overflow-hidden relative">
-            {/* Background Decorative Rings */}
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-96 bg-teal-100/40 rounded-full blur-3xl pointer-events-none -z-10" />
-
-            {/* Celebratory Icon & Badge */}
             <div className="space-y-4">
               <div className="relative mx-auto w-24 h-24 flex items-center justify-center">
                 <div className="absolute inset-0 rounded-full bg-emerald-200/60 animate-ping opacity-30" />
@@ -1419,15 +1662,15 @@ export default function ReportProblemPage() {
                   <span>Grievance Officially Registered & Authenticated</span>
                 </div>
                 <h2 className="text-2xl sm:text-3xl font-extrabold text-[#062B46] tracking-tight">
-                  Thank You! Your Grievance is Lodged
+                  Your complaint has been submitted successfully!
                 </h2>
                 <p className="text-xs sm:text-sm text-slate-600 max-w-lg mx-auto leading-relaxed">
-                  Your complaint has been securely registered in the official <strong>GramaSeva Public Grievance Ledger</strong> and routed to the <strong>Panchayat Development Officer (PDO)</strong> for immediate field verification.
+                  Your complaint will now be reviewed by the responsible Village PDO. After approval, a field worker may be assigned to resolve the issue. You can track every update from your dashboard.
                 </p>
               </div>
             </div>
 
-            {/* Prominent Official Tracking Token Card */}
+            {/* Official Tracking Token Card */}
             <div className="rounded-2xl border-2 border-dashed border-[#087F78] bg-gradient-to-br from-teal-50/90 to-blue-50/70 p-6 sm:p-7 max-w-lg mx-auto space-y-4 shadow-sm relative">
               <div className="flex items-center justify-between border-b border-teal-200/80 pb-3">
                 <div className="flex items-center gap-2">
@@ -1437,7 +1680,7 @@ export default function ReportProblemPage() {
                   </span>
                 </div>
                 <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 text-[10px] font-bold">
-                  ACTIVE • STATUS: SUBMITTED
+                  STATUS: SUBMITTED
                 </Badge>
               </div>
 
@@ -1460,7 +1703,7 @@ export default function ReportProblemPage() {
                   {copiedId ? (
                     <>
                       <Check className="h-4 w-4 text-emerald-600" />
-                      <span className="text-emerald-700">Copied to Clipboard!</span>
+                      <span className="text-emerald-700">Copied!</span>
                     </>
                   ) : (
                     <>
@@ -1474,100 +1717,28 @@ export default function ReportProblemPage() {
               <div className="pt-2 border-t border-teal-200/60 flex items-center justify-between text-[11px] text-slate-500">
                 <span className="flex items-center gap-1">
                   <Clock className="h-3.5 w-3.5 text-teal-600" />
-                  <span>Logged on: {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                  <span>Submission Date: {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
                 </span>
                 <span className="text-emerald-700 font-semibold flex items-center gap-1">
                   <CheckCircle className="h-3.5 w-3.5" />
-                  <span>Tamper-Proof Audit Sealed</span>
+                  <span>Permanent PostgreSQL Record</span>
                 </span>
               </div>
             </div>
 
-            {/* Karnataka Sakala Civic Guarantee 4-Step SLA Timeline */}
-            <div className="max-w-xl mx-auto rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-2xs space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-[#062B46] uppercase tracking-wider flex items-center gap-1.5">
-                  <Award className="h-4 w-4 text-[#087F78]" />
-                  <span>Karnataka Sakala Civic Guarantee Timeline</span>
-                </span>
-                <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                  Target: 72 Hours
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                {/* Step 1 */}
-                <div className="rounded-xl p-2.5 bg-emerald-50 border border-emerald-200 space-y-1">
-                  <div className="flex items-center gap-1 text-emerald-700 font-bold text-[11px]">
-                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-                    <span>1. Submitted</span>
-                  </div>
-                  <p className="text-[10px] text-emerald-800 leading-tight">Recorded in database</p>
-                </div>
-
-                {/* Step 2 */}
-                <div className="rounded-xl p-2.5 bg-sky-50 border border-sky-200 space-y-1">
-                  <div className="flex items-center gap-1 text-sky-800 font-bold text-[11px]">
-                    <Clock className="h-3.5 w-3.5 shrink-0 animate-pulse text-sky-600" />
-                    <span>2. PDO Triage</span>
-                  </div>
-                  <p className="text-[10px] text-sky-900 leading-tight">Within 24 hours</p>
-                </div>
-
-                {/* Step 3 */}
-                <div className="rounded-xl p-2.5 bg-slate-50 border border-slate-200 space-y-1">
-                  <div className="flex items-center gap-1 text-slate-700 font-bold text-[11px]">
-                    <Layers className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                    <span>3. Work Order</span>
-                  </div>
-                  <p className="text-[10px] text-slate-500 leading-tight">Staff dispatched</p>
-                </div>
-
-                {/* Step 4 */}
-                <div className="rounded-xl p-2.5 bg-slate-50 border border-slate-200 space-y-1">
-                  <div className="flex items-center gap-1 text-slate-700 font-bold text-[11px]">
-                    <CheckCircle className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                    <span>4. Verified</span>
-                  </div>
-                  <p className="text-[10px] text-slate-500 leading-tight">After-photo closure</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Official Complaint Dossier Breakdown */}
+            {/* Summary Details */}
             {locationData && (
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 max-w-xl mx-auto text-left text-xs space-y-3 shadow-2xs">
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 max-w-xl mx-auto text-left text-xs space-y-2 shadow-2xs">
                 <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-100 pb-2">
-                  Registered Incident Summary
+                  Confirmed Grievance Details
                 </span>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-slate-700">
-                  <div className="space-y-0.5">
-                    <span className="text-[10px] font-bold uppercase text-slate-400 block">Civic Category & Title</span>
-                    <strong className="text-slate-900 font-semibold block">{issueTitle || activeCategory.replace("_", " ").toUpperCase()}</strong>
-                    <span className="text-[11px] text-[#087F78] font-bold">{activeCategory.replace("_", " ").toUpperCase()}</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-slate-700 pt-1">
+                  <div>Category: <strong className="text-slate-900">{activeCategory.replace("_", " ").toUpperCase()}</strong></div>
+                  <div>Village: <strong className="text-slate-900">{locationData.address.village}</strong></div>
+                  <div className="sm:col-span-2">Location: <span className="text-slate-800">{locationData.address.formattedAddress}</span></div>
+                  <div className="sm:col-span-2 font-mono text-teal-800 text-[11px]">
+                    GPS Coordinates: {locationData.lat.toFixed(6)}°N, {locationData.lon.toFixed(6)}°E
                   </div>
-
-                  <div className="space-y-0.5">
-                    <span className="text-[10px] font-bold uppercase text-slate-400 block">Assigned Gram Panchayat</span>
-                    <strong className="text-slate-900 font-semibold block">{locationData.address.village}</strong>
-                    <span className="text-[11px] text-slate-500">{locationData.address.taluk} • Belagavi</span>
-                  </div>
-
-                  <div className="space-y-0.5 sm:col-span-2">
-                    <span className="text-[10px] font-bold uppercase text-slate-400 block">Incident Coordinates & Address</span>
-                    <span className="text-slate-800 block">{locationData.address.formattedAddress}</span>
-                    <span className="font-mono text-[11px] text-teal-700 block">
-                      📍 {locationData.lat.toFixed(6)}°N, {locationData.lon.toFixed(6)}°E
-                    </span>
-                  </div>
-
-                  {citizenPhone && (
-                    <div className="space-y-0.5 sm:col-span-2 pt-1 border-t border-slate-100 flex items-center justify-between text-[11px]">
-                      <span className="text-slate-500">Citizen Mobile: <strong className="text-slate-800">{citizenPhone}</strong></span>
-                      <span className="text-emerald-700 font-semibold">✓ SMS & WhatsApp Updates Enabled</span>
-                    </div>
-                  )}
                 </div>
               </div>
             )}
@@ -1608,6 +1779,7 @@ export default function ReportProblemPage() {
                   setActiveDescription("");
                   setAdditionalLandmark("");
                   setTrackingId(null);
+                  setHasAiRun(false);
                   setCurrentStep(1);
                 }}
                 className="w-full sm:w-auto text-[#087F78] hover:bg-teal-50 text-xs font-semibold py-3 px-4 rounded-xl cursor-pointer"

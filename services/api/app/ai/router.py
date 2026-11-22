@@ -601,6 +601,7 @@ async def analyze_problem_image_with_gemini(
     file: UploadFile = File(...),
     category_hint: Optional[str] = Form(None),
     village_name: Optional[str] = Form(None),
+    locale: Optional[str] = Form("en"),
 ):
     """
     Dedicated Gemini Vision multimodal analysis endpoint for citizen problem photos (Part 1, Step 4).
@@ -640,14 +641,14 @@ async def analyze_problem_image_with_gemini(
     }
     std_cat = cat_mapping.get(raw_cat, "road_damage")
 
-    # 2. Text generation for title & description
+    # 2. Text generation for title & description in selected locale
     defect_label = ", ".join(analysis.get("detected_elements", [])) or analysis.get("visual_summary", "Civic defect")
     text_data = gemini_service.generate_complaint_details(
         category=std_cat,
         defect_label=defect_label,
         village_name=village_name,
         citizen_notes=None,
-        locale="en",
+        locale=locale or "en",
     )
 
     # 3. OCR & text extraction

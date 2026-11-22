@@ -159,13 +159,29 @@ class GeminiService:
                 except Exception:
                     pass
 
-        # Deterministic Fallback
+        # Deterministic Fallback supporting English, Kannada and Hindi
         cat_formatted = category.replace("_", " ").title()
-        title = f"{defect.title()} reported in {v_name}"
-        desc = (
-            f"A {cat_formatted.lower()} issue ({defect}) has been reported at {v_name}, Belagavi Taluk. "
-            f"Public works inspection and necessary maintenance are requested."
-        )
+        loc_clean = (locale or "en").lower()
+
+        if loc_clean in ["kn", "kannada"]:
+            title = f"{v_name} ನಲ್ಲಿ {defect} ಸಮಸ್ಯೆ"
+            desc = (
+                f"{v_name}, ಬೆಳಗಾವಿ ತಾಲೂಕಿನಲ್ಲಿ {cat_formatted} ({defect}) ಸಮಸ್ಯೆ ಕಂಡುಬಂದಿದೆ. "
+                f"ಗ್ರಾಮ ಪಂಚಾಯತಿ ಅಧಿಕಾರಿಗಳು ತಕ್ಷಣ ಸ್ಥಳ ಪರಿಶೀಲನೆ ನಡೆಸಿ ದುರಸ್ತಿ ಕೈಗೊಳ್ಳಬೇಕಾಗಿ ಕೋರಲಾಗಿದೆ."
+            )
+        elif loc_clean in ["hi", "hindi"]:
+            title = f"{v_name} में {defect} की समस्या"
+            desc = (
+                f"{v_name}, बेलगावी तालुक में {cat_formatted} ({defect}) की नागरिक समस्या की सूचना मिली है। "
+                f"ग्राम पंचायत अधिकारियों से स्थल निरीक्षण एवं शीघ्र मरम्मत का अनुरोध किया जाता है।"
+            )
+        else:
+            title = f"{defect.title()} reported in {v_name}"
+            desc = (
+                f"A {cat_formatted.lower()} issue ({defect}) has been reported at {v_name}, Belagavi Taluk. "
+                f"Public works inspection and necessary maintenance are requested."
+            )
+
         if citizen_notes:
             desc += f" Citizen notes: \"{citizen_notes.strip()}\"."
         return {"title": title, "description": desc}
